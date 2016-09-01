@@ -8,7 +8,7 @@ import (
 
 const (
 	// Version current version number
-	Version = "0.0.2"
+	Version = "0.0.3"
 )
 
 var (
@@ -35,10 +35,15 @@ func New(errMsg string) *Error {
 	return &Error{message: Prefix + errMsg}
 }
 
+// String returns the error message
+func (e Error) String() string {
+	return e.message
+}
+
 // Error returns the message of the actual error
 // implements the error
 func (e Error) Error() string {
-	return e.message
+	return e.String()
 }
 
 // Format returns a formatted new error based on the arguments
@@ -69,6 +74,15 @@ func (e Error) AppendErr(err error) Error {
 // IsAppended returns true if the Error instance is created using original's Error.Append/AppendErr func
 func (e Error) IsAppended() bool {
 	return e.appended
+}
+
+// With does the same thing as Format but it receives an error type which if it's nil it returns a nil error
+func (e Error) With(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	return e.Format(err.Error())
 }
 
 // Panic output the message and after panics

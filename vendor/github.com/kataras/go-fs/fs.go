@@ -68,7 +68,7 @@ var (
 
 // RemoveFile removes a file or directory and returns an error, if any
 func RemoveFile(filePath string) error {
-	return errFileRemove.Format(os.RemoveAll(filePath))
+	return errFileRemove.With(os.RemoveAll(filePath))
 }
 
 // RenameDir renames (moves) oldpath to newpath.
