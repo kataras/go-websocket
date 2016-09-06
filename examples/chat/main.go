@@ -66,6 +66,10 @@ func handleWebsocketConnection(c websocket.Connection) {
 
 	fmt.Printlf("request: %v\n", c.Request())
 
+	c.Set("test", "test value")
+
+	fmt.Printlf("test get and set %v\n", c.Get("test"))
+
 	c.Join(myChatRoom)
 
 	c.On("chat", func(message string) {

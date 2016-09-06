@@ -92,6 +92,10 @@ type (
 
 		// Http Request
 		Request() *http.Request
+
+		// get and set data
+		Get(string) interface{}
+		Set(string, interface{})
 	}
 
 	connection struct {
@@ -110,6 +114,9 @@ type (
 
 		request *http.Request
 		server  *server
+
+		//add some custom data
+		data map[string]interface{}
 	}
 )
 
@@ -127,6 +134,7 @@ func newConnection(underlineConn UnderlineConnection, s *server, req *http.Reque
 		onEventListeners:         make(map[string][]MessageFunc, 0),
 		server:                   s,
 		request:                  req,
+		data:                     make(map[string]interface{}),
 	}
 
 	if s.config.BinaryMessages {
@@ -338,4 +346,12 @@ func (c *connection) Disconnect() error {
 
 func (c *connection) Request() *http.Request {
 	return c.request
+}
+
+func (c *connection) Get(key string) interface{} {
+	return c.data[key]
+}
+
+func (c *connection) Set(key string, value interface{}) {
+	c.data[key] = value
 }
