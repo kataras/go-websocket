@@ -64,11 +64,11 @@ var myChatRoom = "room1"
 
 func handleWebsocketConnection(c websocket.Connection) {
 
-	fmt.Printlf("request: %v\n", c.Request())
+	fmt.Printf("request: %v\n", c.Request())
 
 	c.Set("test", "test value")
 
-	fmt.Printlf("test get and set %v\n", c.Get("test"))
+	fmt.Printf("test get and set %v\n", c.Get("test"))
 
 	c.Join(myChatRoom)
 
