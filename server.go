@@ -120,17 +120,17 @@ func (s *server) Handler() http.Handler {
 			http.Error(res, "Websocket Error: "+err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		s.handleConnection(conn)
+		s.handleConnection(conn, res)
 	})
 }
 
 // HandleConnection creates & starts to listening to a new connection
-func (s *server) HandleConnection(websocketConn UnderlineConnection) {
-	s.handleConnection(websocketConn)
+func (s *server) HandleConnection(websocketConn UnderlineConnection, req *http.Request) {
+	s.handleConnection(websocketConn, req)
 }
 
-func (s *server) handleConnection(websocketConn UnderlineConnection) {
-	c := newConnection(websocketConn, s)
+func (s *server) handleConnection(websocketConn UnderlineConnection, req *http.Request) {
+	c := newConnection(websocketConn, s, req)
 	s.put <- c
 	go c.writer()
 	c.reader()

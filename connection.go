@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"github.com/gorilla/websocket"
 	"io"
+	"net/http"
 	"strconv"
 	"time"
 )
@@ -88,6 +89,9 @@ type (
 		// Disconnect disconnects the client, close the underline websocket conn and removes it from the conn list
 		// returns the error, if any, from the underline connection
 		Disconnect() error
+
+		// Http Request
+		Request() *http.Request
 	}
 
 	connection struct {
@@ -104,13 +108,14 @@ type (
 		broadcast Emmiter // pre-defined emmiter that sends message to all except this
 		all       Emmiter // pre-defined emmiter which sends message to all clients
 
-		server *server
+		request *http.Request
+		server  *server
 	}
 )
 
 var _ Connection = &connection{}
 
-func newConnection(underlineConn UnderlineConnection, s *server) *connection {
+func newConnection(underlineConn UnderlineConnection, s *server, req *http.Request) *connection {
 	c := &connection{
 		underline:   underlineConn,
 		id:          RandomString(64),
@@ -121,6 +126,7 @@ func newConnection(underlineConn UnderlineConnection, s *server) *connection {
 		onNativeMessageListeners: make([]NativeMessageFunc, 0),
 		onEventListeners:         make(map[string][]MessageFunc, 0),
 		server:                   s,
+		request:                  req,
 	}
 
 	if s.config.BinaryMessages {
@@ -328,4 +334,8 @@ func (c *connection) Leave(roomName string) {
 func (c *connection) Disconnect() error {
 	c.server.free <- c // leaves from all rooms, fires the disconnect listeners and finally remove from conn list
 	return c.underline.Close()
+}
+
+func (c *connection) Request() *http.Request {
+	return c.request
 }
