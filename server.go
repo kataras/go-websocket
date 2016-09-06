@@ -47,7 +47,7 @@ type (
 		// look at https://github.com/iris-contrib/websocket, which is an edited version from gorilla/websocket to work with iris
 		// and https://github.com/kataras/iris/blob/master/websocket.go
 		// from fasthttp look at the https://github.com/fasthttp-contrib/websocket,  which is an edited version from gorilla/websocket to work with fasthttp
-		HandleConnection(UnderlineConnection)
+		HandleConnection(UnderlineConnection, *http.Request)
 		// OnConnection this is the main event you, as developer, will work with each of the websocket connections
 		OnConnection(cb ConnectionFunc)
 		// Serve starts the websocket server, it's a non-blocking function (runs from a new goroutine)
@@ -120,7 +120,7 @@ func (s *server) Handler() http.Handler {
 			http.Error(res, "Websocket Error: "+err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		s.handleConnection(conn, res)
+		s.handleConnection(conn, req)
 	})
 }
 
