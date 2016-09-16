@@ -1,9 +1,10 @@
 package websocket
 
 import (
-	"github.com/gorilla/websocket"
 	"net/http"
 	"sync"
+
+	"github.com/gorilla/websocket"
 )
 
 // -------------------------------------------------------------------------------------
@@ -27,7 +28,6 @@ type (
 
 	// payloads, connection -> server
 	websocketMessagePayload struct {
-		from string
 		to   string
 		data []byte
 	}
@@ -47,11 +47,15 @@ type (
 		// look at https://github.com/iris-contrib/websocket, which is an edited version from gorilla/websocket to work with iris
 		// and https://github.com/kataras/iris/blob/master/websocket.go
 		// from fasthttp look at the https://github.com/fasthttp-contrib/websocket,  which is an edited version from gorilla/websocket to work with fasthttp
-		HandleConnection(UnderlineConnection)
+		HandleConnection(UnderlineConnection, *http.Request)
 		// OnConnection this is the main event you, as developer, will work with each of the websocket connections
 		OnConnection(cb ConnectionFunc)
 		// Serve starts the websocket server, it's a non-blocking function (runs from a new goroutine)
 		Serve()
+		// emmiter
+		To(string) Emmiter
+		// get connection by id
+		GetConnection(string) Connection
 	}
 
 	server struct {
@@ -98,6 +102,8 @@ func newServer(c Config) *server {
 		onConnectionListeners: make([]ConnectionFunc, 0),
 	}
 
+	s.broadcast = newEmmiter(s, All)
+
 	// go s.serve() // start the ws server
 	return s
 }
@@ -120,17 +126,17 @@ func (s *server) Handler() http.Handler {
 			http.Error(res, "Websocket Error: "+err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		s.handleConnection(conn)
+		s.handleConnection(conn, req)
 	})
 }
 
 // HandleConnection creates & starts to listening to a new connection
-func (s *server) HandleConnection(websocketConn UnderlineConnection) {
-	s.handleConnection(websocketConn)
+func (s *server) HandleConnection(websocketConn UnderlineConnection, req *http.Request) {
+	s.handleConnection(websocketConn, req)
 }
 
-func (s *server) handleConnection(websocketConn UnderlineConnection) {
-	c := newConnection(websocketConn, s)
+func (s *server) handleConnection(websocketConn UnderlineConnection, req *http.Request) {
+	c := newConnection(websocketConn, s, req)
 	s.put <- c
 	go c.writer()
 	c.reader()
@@ -173,6 +179,25 @@ func (s *server) Serve() {
 	go s.serve()
 }
 
+func (s *server) To(to string) Emmiter {
+
+	if to == All { //send to all
+		return s.broadcast
+	}
+
+	// send to a room
+	return newEmmiter(s, to)
+}
+
+func (s *server) GetConnection(cid string) Connection {
+
+	conn, ok := s.connections[cid]
+	if !ok {
+		return nil
+	}
+	return conn
+}
+
 func (s *server) serve() {
 	for {
 		select {
@@ -200,24 +225,8 @@ func (s *server) serve() {
 		case leave := <-s.leave:
 			s.leaveRoom(leave.roomName, leave.connectionID)
 		case msg := <-s.messages: // message received from the connection
-			if msg.to != All && msg.to != NotMe && s.rooms[msg.to] != nil {
-				// it suppose to send the message to a room
-				for _, connectionIDInsideRoom := range s.rooms[msg.to] {
-					if c, connected := s.connections[connectionIDInsideRoom]; connected {
-						c.send <- msg.data //here we send it without need to continue below
-					} else {
-						// the connection is not connected but it's inside the room, we remove it on disconnect but for ANY CASE:
-						s.leaveRoom(c.id, msg.to)
-					}
-				}
-
-			} else { // it suppose to send the message to all opened connections or to all except the sender
+			if msg.to == All {
 				for connID, c := range s.connections {
-					if msg.to != All { // if it's not suppose to send to all connections (including itself)
-						if msg.to == NotMe && msg.from == connID { // if broadcast to other connections except this
-							continue //here we do the opossite of previous block, just skip this connection when it's suppose to send the message to all connections except the sender
-						}
-					}
 					select {
 					case s.connections[connID].send <- msg.data: //send the message back to the connection in order to send it to the client
 					default:
@@ -227,6 +236,17 @@ func (s *server) serve() {
 
 					}
 
+				}
+
+			} else if _, ok := s.rooms[msg.to]; ok {
+				// it suppose to send the message to a room
+				for _, connectionIDInsideRoom := range s.rooms[msg.to] {
+					if c, connected := s.connections[connectionIDInsideRoom]; connected {
+						c.send <- msg.data //here we send it without need to continue below
+					} else {
+						// the connection is not connected but it's inside the room, we remove it on disconnect but for ANY CASE:
+						s.leaveRoom(c.id, msg.to)
+					}
 				}
 			}
 

@@ -9,10 +9,6 @@ package websocket
 const (
 	// All is the string which the Emmiter use to send a message to all
 	All = ""
-	// NotMe is the string which the Emmiter use to send a message to all except this connection
-	NotMe = ";gowebsocket;to;all;except;me;"
-	// Broadcast is the string which the Emmiter use to send a message to all except this connection, same as 'NotMe'
-	Broadcast = NotMe
 )
 
 type (
@@ -25,20 +21,20 @@ type (
 	}
 
 	emmiter struct {
-		conn *connection
-		to   string
+		server *server
+		to     string
 	}
 )
 
 var _ Emmiter = &emmiter{}
 
-func newEmmiter(c *connection, to string) *emmiter {
-	return &emmiter{conn: c, to: to}
+func newEmmiter(server *server, to string) *emmiter {
+	return &emmiter{server: server, to: to}
 }
 
 func (e *emmiter) EmitMessage(nativeMessage []byte) error {
-	mp := websocketMessagePayload{e.conn.id, e.to, nativeMessage}
-	e.conn.server.messages <- mp
+	mp := websocketMessagePayload{e.to, nativeMessage}
+	e.server.messages <- mp
 	return nil
 }
 
