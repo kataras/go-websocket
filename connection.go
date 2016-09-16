@@ -2,11 +2,12 @@ package websocket
 
 import (
 	"bytes"
-	"github.com/gorilla/websocket"
 	"io"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // UnderlineConnection is used for compatible with Iris(fasthttp web framework) we only need ~4 funcs from websocket.Conn so:
@@ -75,9 +76,6 @@ type (
 		//
 		// It does nothing more than firing the OnError listeners. It doesn't sends anything to the client.
 		EmitError(errorMessage string)
-		// To defines where server should send a message
-		// returns an emmiter to send messages
-		To(string) Emmiter
 		// OnMessage registers a callback which fires when native websocket message received
 		OnMessage(NativeMessageFunc)
 		// On registers a callback to a particular event which fires when a message to this event received
@@ -107,10 +105,6 @@ type (
 		onErrorListeners         []ErrorFunc
 		onNativeMessageListeners []NativeMessageFunc
 		onEventListeners         map[string][]MessageFunc
-		// these were  maden for performance only
-		self      Emmiter // pre-defined emmiter than sends message to its self client
-		broadcast Emmiter // pre-defined emmiter that sends message to all except this
-		all       Emmiter // pre-defined emmiter which sends message to all clients
 
 		request *http.Request
 		server  *server
@@ -140,10 +134,6 @@ func newConnection(underlineConn UnderlineConnection, s *server, req *http.Reque
 	if s.config.BinaryMessages {
 		c.messageType = websocket.TextMessage
 	}
-
-	c.self = newEmmiter(c, c.id)
-	c.broadcast = newEmmiter(c, NotMe)
-	c.all = newEmmiter(c, All)
 
 	return c
 }
@@ -297,24 +287,19 @@ func (c *connection) EmitError(errorMessage string) {
 	}
 }
 
-func (c *connection) To(to string) Emmiter {
-	if to == NotMe { // if send to all except me, then return the pre-defined emmiter, and so on
-		return c.broadcast
-	} else if to == All {
-		return c.all
-	} else if to == c.id {
-		return c.self
-	}
-	// is an emmiter to another client/connection
-	return newEmmiter(c, to)
-}
-
 func (c *connection) EmitMessage(nativeMessage []byte) error {
-	return c.self.EmitMessage(nativeMessage)
+	mp := websocketMessagePayload{c.id, c.id, nativeMessage}
+	c.server.messages <- mp
+	return nil
 }
 
-func (c *connection) Emit(event string, message interface{}) error {
-	return c.self.Emit(event, message)
+func (c *connection) Emit(event string, data interface{}) error {
+	message, err := websocketMessageSerialize(event, data)
+	if err != nil {
+		return err
+	}
+	c.EmitMessage([]byte(message))
+	return nil
 }
 
 func (c *connection) OnMessage(cb NativeMessageFunc) {
