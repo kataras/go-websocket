@@ -79,7 +79,7 @@ func New(cfg ...Config) Server {
 	if len(cfg) > 1 {
 		c = cfg[0]
 	}
-	c = c.validate()
+	c = c.Validate()
 	return newServer(c)
 }
 

@@ -46,7 +46,8 @@ type Config struct {
 	WriteBufferSize int
 }
 
-func (c Config) validate() Config {
+// Validate validates the configuration
+func (c Config) Validate() Config {
 	if c.WriteTimeout <= 0 {
 		c.WriteTimeout = DefaultWebsocketWriteTimeout
 	}
