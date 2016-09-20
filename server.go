@@ -34,6 +34,8 @@ type (
 
 	// Server is the websocket server, listens on the config's port, the critical part is the event OnConnection
 	Server interface {
+		// Set sets an option aka configuration field to the websocket server
+		Set(...OptionSetter)
 		// Handler returns the http.Handler which is setted to the 'Websocket Endpoint path', the client should target to this handler's developer's custom path
 		// ex: http.Handle("/myendpoint", mywebsocket.Handler())
 		// Handler calls the HandleConnection, so
@@ -71,23 +73,19 @@ type (
 
 var _ Server = &server{}
 
+var defaultServer = newServer()
+
 // server implementation
 
 // New creates a websocket server and returns it
-func New(cfg ...Config) Server {
-	c := Config{}
-	if len(cfg) > 1 {
-		c = cfg[0]
-	}
-	c = c.Validate()
-	return newServer(c)
+func New(setters ...OptionSetter) Server {
+	return newServer(setters...)
 }
 
 // newServer creates a websocket server and returns it
-func newServer(c Config) *server {
+func newServer(setters ...OptionSetter) *server {
 
 	s := &server{
-		config:                c,
 		put:                   make(chan *connection),
 		free:                  make(chan *connection),
 		connections:           make(map[string]*connection),
@@ -98,8 +96,33 @@ func newServer(c Config) *server {
 		onConnectionListeners: make([]ConnectionFunc, 0),
 	}
 
+	s.Set(setters...)
+
 	// go s.serve() // start the ws server
 	return s
+}
+
+// Set sets an option aka configuration field to the default websocket server
+func Set(setters ...OptionSetter) {
+	defaultServer.Set(setters...)
+}
+
+// Set sets an option aka configuration field to the websocket server
+func (s *server) Set(setters ...OptionSetter) {
+	for _, setter := range setters {
+		setter.Set(&s.config)
+	}
+
+	s.config = s.config.Validate() // validate the fields on each call
+}
+
+// Handler returns the http.Handler which is setted to the 'Websocket Endpoint path', the client should target to this handler's developer's custom path
+// ex: http.Handle("/myendpoint", mywebsocket.Handler())
+// Handler calls the HandleConnection, so
+// Use Handler or HandleConnection manually, DO NOT USE both.
+// Note: you can always create your own upgrader which returns an UnderlineConnection and call only the HandleConnection manually (as Iris web framework does)
+func Handler() http.Handler {
+	return defaultServer.Handler()
 }
 
 func (s *server) Handler() http.Handler {
@@ -125,6 +148,11 @@ func (s *server) Handler() http.Handler {
 }
 
 // HandleConnection creates & starts to listening to a new connection
+func HandleConnection(websocketConn UnderlineConnection) {
+	defaultServer.HandleConnection(websocketConn)
+}
+
+// HandleConnection creates & starts to listening to a new connection
 func (s *server) HandleConnection(websocketConn UnderlineConnection) {
 	s.handleConnection(websocketConn)
 }
@@ -134,6 +162,11 @@ func (s *server) handleConnection(websocketConn UnderlineConnection) {
 	s.put <- c
 	go c.writer()
 	c.reader()
+}
+
+// OnConnection this is the main event you, as developer, will work with each of the websocket connections
+func OnConnection(cb ConnectionFunc) {
+	defaultServer.OnConnection(cb)
 }
 
 // OnConnection this is the main event you, as developer, will work with each of the websocket connections
@@ -166,6 +199,11 @@ func (s *server) leaveRoom(roomName string, connID string) {
 	}
 
 	s.mu.Unlock()
+}
+
+// Serve starts the websocket server
+func Serve() {
+	defaultServer.Serve()
 }
 
 // Serve starts the websocket server
