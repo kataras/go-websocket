@@ -254,6 +254,8 @@ func (s *server) serve() {
 					if msg.to != All { // if it's not suppose to send to all connections (including itself)
 						if msg.to == NotMe && msg.from == connID { // if broadcast to other connections except this
 							continue //here we do the opossite of previous block, just skip this connection when it's suppose to send the message to all connections except the sender
+						} else if msg.to != connID { //it's not suppose to send to every one but to the one we'd like to
+							continue
 						}
 					}
 					select {
