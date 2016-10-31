@@ -1,7 +1,7 @@
 package websocket
 
 import (
-	"github.com/kataras/go-fs"
+	"gopkg.in/kataras/go-fs.v0"
 )
 
 // ClientSourcePath is never used inside this project but you can use it to serve the client source /go-websocket.js

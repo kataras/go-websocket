@@ -2,8 +2,8 @@ package websocket
 
 import (
 	"encoding/json"
-	"github.com/kataras/go-errors"
 	"github.com/valyala/bytebufferpool"
+	"gopkg.in/kataras/go-errors.v0"
 	"math/rand"
 	"strconv"
 	"strings"

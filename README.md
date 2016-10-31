@@ -16,14 +16,14 @@ Installation
 The only requirement is the [Go Programming Language](https://golang.org/dl), at least v1.7.
 
 ```bash
-$ go get -u github.com/kataras/go-websocket
+$ go get -u gopkg.in/kataras/go-websocket.v0
 ```
 
 
 Examples
 ------------
 
-To view working examples please navigate to the [./examples](https://github.com/kataras/go-websocket/tree/master/examples) folder.
+To view working examples please navigate to the [./examples](https://github.com/kataras/go-websocket/tree/0.0.2/examples) folder.
 
 Docs
 ------------

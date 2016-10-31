@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/kataras/go-websocket"
+	"gopkg.in/kataras/go-websocket.v0"
 	"html/template"
 	"net/http"
 )
