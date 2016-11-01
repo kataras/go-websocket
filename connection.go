@@ -124,7 +124,7 @@ func newConnection(underlineConn UnderlineConnection, s *server) *connection {
 	}
 
 	if s.config.BinaryMessages {
-		c.messageType = websocket.TextMessage
+		c.messageType = websocket.BinaryMessage
 	}
 
 	c.self = newEmmiter(c, c.id)
