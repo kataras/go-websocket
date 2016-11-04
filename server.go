@@ -57,6 +57,7 @@ type (
 	}
 
 	server struct {
+		once                  sync.Once
 		config                Config
 		put                   chan *connection
 		free                  chan *connection
@@ -171,6 +172,10 @@ func OnConnection(cb ConnectionFunc) {
 
 // OnConnection this is the main event you, as developer, will work with each of the websocket connections
 func (s *server) OnConnection(cb ConnectionFunc) {
+	// start the server here if was the first listener
+	if len(s.onConnectionListeners) == 0 {
+		s.Serve()
+	}
 	s.onConnectionListeners = append(s.onConnectionListeners, cb)
 }
 
@@ -208,7 +213,9 @@ func Serve() {
 
 // Serve starts the websocket server
 func (s *server) Serve() {
-	go s.serve()
+	s.once.Do(func() {
+		go s.serve()
+	})
 }
 
 func (s *server) serve() {
