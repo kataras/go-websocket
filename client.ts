@@ -222,17 +222,30 @@ class Ws {
         this.messageListeners[event].push(cb);
     }
 
-    fireMessage(event: string, message: any): void {
-        for (let key in this.messageListeners) {
-            if (this.messageListeners.hasOwnProperty(key)) {
-                if (key == event) {
-                    for (let i = 0; i < this.messageListeners[key].length; i++) {
-                        this.messageListeners[key][i](message);
-                    }
-                }
-            }
-        }
-    }
+	OnAll(cb: onMessageFunc): void {
+		if (this.messageListeners['*'] == null || this.messageListeners['*'] == undefined) {
+			this.messageListeners['*'] = [];
+		}
+		this.messageListeners['*'].push(cb);
+	}
+
+	fireMessage(event: string, message: any): void {
+		// Call messageListeners for this specific event
+		for (let key in this.messageListeners) {
+			if (this.messageListeners.hasOwnProperty(key)) {
+				if (key == event) {
+					for (let i = 0; i < this.messageListeners[key].length; i++) {
+						this.messageListeners[key][i](message);
+					}
+				}
+			}
+		}
+
+		// Call messageListeners for OnAll event
+		for (let i = 0; i < this.messageListeners['*'].length; i++) {
+			this.messageListeners['*'][i](message);
+		}
+	}
 
 
     //
