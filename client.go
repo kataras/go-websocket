@@ -204,17 +204,29 @@ var Ws = (function () {
         }
         this.messageListeners[event].push(cb);
     };
-    Ws.prototype.fireMessage = function (event, message) {
-        for (var key in this.messageListeners) {
-            if (this.messageListeners.hasOwnProperty(key)) {
-                if (key == event) {
-                    for (var i = 0; i < this.messageListeners[key].length; i++) {
-                        this.messageListeners[key][i](message);
-                    }
-                }
-            }
-        }
-    };
+	Ws.prototype.OnAll = function (cb) {
+		if (this.messageListeners['*'] == null || this.messageListeners['*'] == undefined) {
+			this.messageListeners['*'] = [];
+		}
+		this.messageListeners['*'].push(cb);
+	};
+	Ws.prototype.fireMessage = function (event, message) {
+		// Call messageListeners for this specific event
+		for (var key in this.messageListeners) {
+			if (this.messageListeners.hasOwnProperty(key)) {
+				if (key == event) {
+					for (var i = 0; i < this.messageListeners[key].length; i++) {
+						this.messageListeners[key][i](message);
+					}
+				}
+			}
+		}
+
+		// Call messageListeners for OnAll event
+		for (var i = 0; i < this.messageListeners['*'].length; i++) {
+			this.messageListeners['*'][i](message);
+		}
+	};
     //
     // Ws Actions
     Ws.prototype.Disconnect = function () {
