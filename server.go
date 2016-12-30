@@ -252,7 +252,11 @@ func (s *server) serve() {
 						c.send <- msg.data //here we send it without need to continue below
 					} else {
 						// the connection is not connected but it's inside the room, we remove it on disconnect but for ANY CASE:
-						s.leaveRoom(c.id, msg.to)
+						cid := connectionIDInsideRoom
+						if c != nil {
+							cid = c.id
+						}
+						s.leaveRoom(cid, msg.to)
 					}
 				}
 
