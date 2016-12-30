@@ -1,5 +1,5 @@
 <a href="https://travis-ci.org/kataras/go-websocket"><img src="https://img.shields.io/travis/kataras/go-websocket.svg?style=flat-square" alt="Build Status"></a>
-<a href="https://github.com/kataras/go-websocket/blob/master/LICENSE"><img src="https://img.shields.io/badge/%20license-MIT%20%20License%20-E91E63.svg?style=flat-square" alt="License"></a>
+<a href="https://github.com/kataras/go-websocket/blob/0.0.3/LICENSE"><img src="https://img.shields.io/badge/%20license-MIT%20%20License%20-E91E63.svg?style=flat-square" alt="License"></a>
 <a href="https://github.com/kataras/go-websocket/releases"><img src="https://img.shields.io/badge/%20release%20-%20v0.0.3-blue.svg?style=flat-square" alt="Releases"></a>
 <a href="#docs"><img src="https://img.shields.io/badge/%20docs-reference-5272B4.svg?style=flat-square" alt="Read me docs"></a>
 <a href="https://kataras.rocket.chat/channel/go-websocket"><img src="https://img.shields.io/badge/%20community-chat-00BCD4.svg?style=flat-square" alt="Build Status"></a>
@@ -9,21 +9,21 @@
 
 The package go-websocket provides an easy way to setup a rich Websocket server and client side.
 
-It's already tested on production & used on [Iris](https://github.com/kataras/iris) and [Q](https://github.com/kataras/q) web framework.
+It's already tested on production & used on [Iris web framework](https://github.com/kataras/iris).
 
 Installation
 ------------
 The only requirement is the [Go Programming Language](https://golang.org/dl), at least v1.7.
 
 ```bash
-$ go get -u github.com/kataras/go-websocket
+$ go get -u gopkg.in/kataras/go-websocket.v0
 ```
 
 
 Examples
 ------------
 
-To view working examples please navigate to the [./examples](https://github.com/kataras/go-websocket/tree/master/examples) folder.
+To view working examples please navigate to the [./examples](https://github.com/kataras/go-websocket/tree/0.0.3/examples) folder.
 
 Docs
 ------------
