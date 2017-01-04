@@ -42,7 +42,7 @@ var Ws = (function () {
         this.connectListeners = [];
         this.disconnectListeners = [];
         this.nativeMessageListeners = [];
-        this.messageListeners = {};
+        this.messageListeners = {'*':[]};
         if (!window["WebSocket"]) {
             return;
         }
@@ -205,9 +205,6 @@ var Ws = (function () {
         this.messageListeners[event].push(cb);
     };
 	Ws.prototype.OnAll = function (cb) {
-		if (this.messageListeners['*'] == null || this.messageListeners['*'] == undefined) {
-			this.messageListeners['*'] = [];
-		}
 		this.messageListeners['*'].push(cb);
 	};
 	Ws.prototype.fireMessage = function (event, message) {
