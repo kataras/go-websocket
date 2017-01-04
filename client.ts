@@ -35,7 +35,7 @@ class Ws {
     private connectListeners: onConnectFunc[] = [];
     private disconnectListeners: onWebsocketDisconnectFunc[] = [];
     private nativeMessageListeners: onWebsocketNativeMessageFunc[] = [];
-    private messageListeners: { [event: string]: onMessageFunc[] } = {};
+    private messageListeners: { [event: string]: onMessageFunc[] } = {'*':[]};
 
     //
 
@@ -223,9 +223,6 @@ class Ws {
     }
 
 	OnAll(cb: onMessageFunc): void {
-		if (this.messageListeners['*'] == null || this.messageListeners['*'] == undefined) {
-			this.messageListeners['*'] = [];
-		}
 		this.messageListeners['*'].push(cb);
 	}
 
