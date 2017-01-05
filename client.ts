@@ -152,7 +152,7 @@ class Ws {
 
     private getCustomMessage(event: string, websocketMessage: string): string {
         let eventIdx = websocketMessage.indexOf(event + websocketMessageSeparator);
-        let s = websocketMessage.substring(eventIdx + event.length + websocketMessageSeparator.length+2, websocketMessage.length);
+        let s = websocketMessage.substring(eventIdx + event.length + websocketMessageSeparator.length + 2, websocketMessage.length);
         return s;
     }
 

@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/kataras/go-websocket"
 	"html/template"
 	"net/http"
+
+	"github.com/kataras/go-websocket"
 )
 
 type clientPage struct {
@@ -67,10 +68,10 @@ func handleWebsocketConnection(c websocket.Connection) {
 	c.Join(myChatRoom)
 
 	c.On("chat", func(message string) {
-		// to all except this connection ->
-		//c.To(websocket.Broadcast).Emit("chat", "Message from: "+c.ID()+"-> "+message)
-
-		// to the client ->
+		// to all except this connection (broadcast) ->
+		// c.To(websocket.NotMe).Emit("chat", "Message from: "+c.ID()+"-> "+message)
+		// to all: c.To(websocket.All).
+		// to client itself->
 		//c.Emit("chat", "Message from myself: "+message)
 
 		//send the message to the whole room,

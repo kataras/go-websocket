@@ -1,9 +1,10 @@
 package websocket
 
 import (
-	"github.com/gorilla/websocket"
 	"net/http"
 	"sync"
+
+	"github.com/gorilla/websocket"
 )
 
 // -------------------------------------------------------------------------------------
@@ -245,6 +246,7 @@ func (s *server) serve() {
 		case leave := <-s.leave:
 			s.leaveRoom(leave.roomName, leave.connectionID)
 		case msg := <-s.messages: // message received from the connection
+
 			if msg.to != All && msg.to != NotMe && s.rooms[msg.to] != nil {
 				// it suppose to send the message to a room
 				for _, connectionIDInsideRoom := range s.rooms[msg.to] {
@@ -265,9 +267,17 @@ func (s *server) serve() {
 					if msg.to != All { // if it's not suppose to send to all connections (including itself)
 						if msg.to == NotMe && msg.from == connID { // if broadcast to other connections except this
 							continue //here we do the opossite of previous block, just skip this connection when it's suppose to send the message to all connections except the sender
-						} else if msg.to != connID { //it's not suppose to send to every one but to the one we'd like to
+						}
+
+						if msg.to == NotMe && msg.from != connID {
+							c.send <- msg.data
 							continue
 						}
+
+						if msg.to != connID {
+							continue
+						}
+
 					}
 					select {
 					case s.connections[connID].send <- msg.data: //send the message back to the connection in order to send it to the client
