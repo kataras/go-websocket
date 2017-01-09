@@ -2,10 +2,12 @@ package websocket
 
 import (
 	"bytes"
-	"github.com/gorilla/websocket"
 	"io"
+	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // UnderlineConnection is used for compatible with Iris(fasthttp web framework) we only need ~4 funcs from websocket.Conn so:
@@ -66,6 +68,13 @@ type (
 		Emmiter
 		// ID returns the connection's identifier
 		ID() string
+
+		// Request returns the (upgraded) *http.Request of this connection
+		// avoid using it, you normally don't need it,
+		// websocket has everything you need to authenticate the user BUT if it's necessary
+		// then  you use it to receive user information, for example: from headers
+		Request() *http.Request
+
 		// OnDisconnect registers a callback which fires when this connection is closed by an error or manual
 		OnDisconnect(DisconnectFunc)
 		// OnError registers a callback which fires when this connection occurs an error
@@ -103,14 +112,16 @@ type (
 		self      Emmiter // pre-defined emmiter than sends message to its self client
 		broadcast Emmiter // pre-defined emmiter that sends message to all except this
 		all       Emmiter // pre-defined emmiter which sends message to all clients
-
-		server *server
+		// httpRequest is a long-time feature request,
+		// now you have access to the *http.Request which upgraded to be able to use websocket connection
+		httpRequest *http.Request
+		server      *server
 	}
 )
 
 var _ Connection = &connection{}
 
-func newConnection(underlineConn UnderlineConnection, id string, s *server) *connection {
+func newConnection(s *server, r *http.Request, underlineConn UnderlineConnection, id string) *connection {
 	c := &connection{
 		underline:   underlineConn,
 		id:          id,
@@ -120,6 +131,7 @@ func newConnection(underlineConn UnderlineConnection, id string, s *server) *con
 		onErrorListeners:         make([]ErrorFunc, 0),
 		onNativeMessageListeners: make([]NativeMessageFunc, 0),
 		onEventListeners:         make(map[string][]MessageFunc, 0),
+		httpRequest:              r,
 		server:                   s,
 	}
 
@@ -261,6 +273,10 @@ func (c *connection) messageReceived(data []byte) {
 
 func (c *connection) ID() string {
 	return c.id
+}
+
+func (c *connection) Request() *http.Request {
+	return c.httpRequest
 }
 
 func (c *connection) fireDisconnect() {

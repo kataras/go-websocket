@@ -45,12 +45,9 @@ type (
 		Handler() http.Handler
 		// HandleConnection creates & starts to listening to a new connection
 		// DO NOT USE Handler() and HandleConnection at the sametime, see Handler for more
-		//
-		// Note: to see examples on how to manually use the HandleConnection, see one of my repositories:
-		// look at https://github.com/iris-contrib/websocket, which is an edited version from gorilla/websocket to work with iris
-		// and https://github.com/kataras/iris/blob/master/websocket.go
-		// from fasthttp look at the https://github.com/fasthttp-contrib/websocket,  which is an edited version from gorilla/websocket to work with fasthttp
-		HandleConnection(UnderlineConnection)
+		// NOTE: You don't need this, this is needed only when we want to 'hijack' the upgrader
+		// (used for Iris and fasthttp before Iris v6)
+		HandleConnection(*http.Request, UnderlineConnection)
 		// OnConnection this is the main event you, as developer, will work with each of the websocket connections
 		OnConnection(cb ConnectionFunc)
 		// Serve starts the websocket server, it's a non-blocking function (runs from a new goroutine)
@@ -131,7 +128,7 @@ func (s *server) Handler() http.Handler {
 	// build the upgrader once
 	c := s.config
 	upgrader := websocket.Upgrader{ReadBufferSize: c.ReadBufferSize, WriteBufferSize: c.WriteBufferSize, Error: c.Error, CheckOrigin: c.CheckOrigin}
-	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Upgrade upgrades the HTTP server connection to the WebSocket protocol.
 		//
 		// The responseHeader is included in the response to the client's upgrade
@@ -140,28 +137,24 @@ func (s *server) Handler() http.Handler {
 		//
 		// If the upgrade fails, then Upgrade replies to the client with an HTTP error
 		// response.
-		conn, err := upgrader.Upgrade(res, req, res.Header())
+		conn, err := upgrader.Upgrade(w, r, w.Header())
 		if err != nil {
-			http.Error(res, "Websocket Error: "+err.Error(), http.StatusServiceUnavailable)
+			http.Error(w, "Websocket Error: "+err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		s.handleConnection(conn)
+		s.HandleConnection(r, conn)
 	})
 }
 
 // HandleConnection creates & starts to listening to a new connection
-func HandleConnection(websocketConn UnderlineConnection) {
-	defaultServer.HandleConnection(websocketConn)
+func HandleConnection(r *http.Request, websocketConn UnderlineConnection) {
+	defaultServer.HandleConnection(r, websocketConn)
 }
 
 // HandleConnection creates & starts to listening to a new connection
-func (s *server) HandleConnection(websocketConn UnderlineConnection) {
-	s.handleConnection(websocketConn)
-}
-
-func (s *server) handleConnection(websocketConn UnderlineConnection) {
-	cid := s.config.IDGenerator()
-	c := newConnection(websocketConn, cid, s)
+func (s *server) HandleConnection(r *http.Request, websocketConn UnderlineConnection) {
+	cid := s.config.IDGenerator(r)
+	c := newConnection(s, r, websocketConn, cid)
 	s.put <- c
 	go c.writer()
 	c.reader()
