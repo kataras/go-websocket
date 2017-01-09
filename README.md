@@ -86,6 +86,9 @@ websocket.OnConnection(func(c websocket.Connection){})
 Connection's methods
 ```go
 ID() string
+
+Request() *http.Request
+
 // Receive from the client
 On("anyCustomEvent", func(message string) {})
 On("anyCustomEvent", func(message int){})
@@ -103,7 +106,11 @@ Emit("anyCustomEvent", int)
 Emit("anyCustomEvent", bool)
 Emit("anyCustomEvent", anyCustomType)
 
-// Send via native websocket way, compatible without need of import the go-websocket.js to the .html
+// Send native websocket messages
+// with config.BinaryMessages = true
+// useful when you use proto or something like this.
+//
+// compatible without need of import the go-websocket.js to the .html
 EmitMessage([]byte("anyMessage"))
 
 // Send to specific client(s)
@@ -113,8 +120,8 @@ To("anyCustomRoom").Emit/EmitMessage...
 // Send to all opened connections/clients
 To(websocket.All).Emit/EmitMessage...
 
-// Send to all opened connections/clients EXCEPT this client(c)
-To(websocket.NotMe).Emit/EmitMessage...
+// Send to all opened connections/clients EXCEPT this client
+To(websocket.Broadcast).Emit/EmitMessage...
 
 // Rooms, group of connections/clients
 Join("anyCustomRoom")
