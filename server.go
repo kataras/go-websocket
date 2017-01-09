@@ -160,7 +160,8 @@ func (s *server) HandleConnection(websocketConn UnderlineConnection) {
 }
 
 func (s *server) handleConnection(websocketConn UnderlineConnection) {
-	c := newConnection(websocketConn, s)
+	cid := s.config.IDGenerator()
+	c := newConnection(websocketConn, cid, s)
 	s.put <- c
 	go c.writer()
 	c.reader()

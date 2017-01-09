@@ -110,10 +110,10 @@ type (
 
 var _ Connection = &connection{}
 
-func newConnection(underlineConn UnderlineConnection, s *server) *connection {
+func newConnection(underlineConn UnderlineConnection, id string, s *server) *connection {
 	c := &connection{
 		underline:   underlineConn,
-		id:          RandomString(64),
+		id:          id,
 		messageType: websocket.TextMessage,
 		send:        make(chan []byte, 256),
 		onDisconnectListeners:    make([]DisconnectFunc, 0),
