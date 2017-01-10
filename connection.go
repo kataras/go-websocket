@@ -157,18 +157,17 @@ func (c *connection) writer() {
 		ticker.Stop()
 		c.Disconnect()
 	}()
-
+	defer func() {
+		if err := recover(); err != nil {
+			ticker.Stop()
+			c.server.free <- c
+			c.underline.Close()
+		}
+	}()
 	for {
 		select {
 		case msg, ok := <-c.send:
 			if !ok {
-				defer func() {
-					if err := recover(); err != nil {
-						ticker.Stop()
-						c.server.free <- c
-						c.underline.Close()
-					}
-				}()
 				c.write(websocket.CloseMessage, []byte{})
 				return
 			}
@@ -179,11 +178,6 @@ func (c *connection) writer() {
 				return
 			}
 			res.Write(msg)
-
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				res.Write(<-c.send)
-			}
 
 			if err := res.Close(); err != nil {
 				return

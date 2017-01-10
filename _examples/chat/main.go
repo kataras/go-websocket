@@ -28,7 +28,7 @@ func main() {
 
 	// init our websocket
 	ws := websocket.New(websocket.Config{}) // with the default configuration
-	// the path which the websocket client should listen/registed to ->
+	// the path which the websocket client should listen/registered to ->
 	http.Handle("/my_endpoint", ws.Handler()) // See ./templates/client.html line: 21
 
 	// serve our client-side source code go-websocket. See ./templates/client.html line: 19
