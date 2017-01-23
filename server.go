@@ -89,7 +89,7 @@ func newServer(setters ...OptionSetter) *server {
 		free:                  make(chan *connection),
 		connections:           make(map[string]*connection),
 		join:                  make(chan websocketRoomPayload, 1), // buffered because join can be called immediately on connection connected
-		leave:                 make(chan websocketRoomPayload),
+		leave:                 make(chan websocketRoomPayload, 1), // buffered because leave can be ACCIDENTLY called on disconnected. IT SHOULDN'T
 		rooms:                 make(Rooms),
 		messages:              make(chan websocketMessagePayload, 1), // buffered because messages can be sent/received immediately on connection connected
 		onConnectionListeners: make([]ConnectionFunc, 0),
@@ -199,6 +199,14 @@ func (s *server) leaveRoom(roomName string, connID string) {
 	}
 
 	s.mu.Unlock()
+}
+
+// IsConnected returns true if the connection with that ID is connected to the server
+// useful when you have defined a custom connection id generator (based on a database)
+// and you want to check if that connection is already connected (on multiple tabs)
+func (s *server) IsConnected(connID string) bool {
+	_, found := s.connections[connID]
+	return found
 }
 
 // Serve starts the websocket server
