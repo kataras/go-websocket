@@ -91,7 +91,7 @@ func newServer(setters ...OptionSetter) *server {
 		free:                  make(chan *connection),
 		connections:           make(map[string]*connection),
 		join:                  make(chan websocketRoomPayload, 1), // buffered because join can be called immediately on connection connected
-		leave:                 make(chan websocketRoomPayload),
+		leave:                 make(chan websocketRoomPayload, 1),
 		rooms:                 make(Rooms),
 		messages:              make(chan websocketMessagePayload, 1), // buffered because messages can be sent/received immediately on connection connected
 		onConnectionListeners: make([]ConnectionFunc, 0),
