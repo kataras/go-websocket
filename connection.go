@@ -10,7 +10,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// UnderlineConnection is used for compatible with Iris(fasthttp web framework) we only need ~4 funcs from websocket.Conn so:
+// UnderlineConnection is used for compatible with fasthttp and net/http underline websocket libraries
+// we only need ~8 funcs from websocket.Conn so:
 type UnderlineConnection interface {
 	// SetWriteDeadline sets the write deadline on the underlying network
 	// connection. After a write has timed out, the websocket state is corrupt and
@@ -59,13 +60,13 @@ type (
 	ErrorFunc (func(string))
 	// NativeMessageFunc is the callback for native websocket messages, receives one []byte parameter which is the raw client's message
 	NativeMessageFunc func([]byte)
-	// MessageFunc is the second argument to the Emmiter's Emit functions.
+	// MessageFunc is the second argument to the Emitter's Emit functions.
 	// A callback which should receives one parameter of type string, int, bool or any valid JSON/Go struct
 	MessageFunc interface{}
 	// Connection is the front-end API that you will use to communicate with the client side
 	Connection interface {
-		// Emmiter implements EmitMessage & Emit
-		Emmiter
+		// Emitter implements EmitMessage & Emit
+		Emitter
 		// ID returns the connection's identifier
 		ID() string
 
@@ -84,8 +85,8 @@ type (
 		// It does nothing more than firing the OnError listeners. It doesn't sends anything to the client.
 		EmitError(errorMessage string)
 		// To defines where server should send a message
-		// returns an emmiter to send messages
-		To(string) Emmiter
+		// returns an emitter to send messages
+		To(string) Emitter
 		// OnMessage registers a callback which fires when native websocket message received
 		OnMessage(NativeMessageFunc)
 		// On registers a callback to a particular event which fires when a message to this event received
@@ -103,15 +104,16 @@ type (
 		underline                UnderlineConnection
 		id                       string
 		messageType              int
-		send                     chan []byte
+		pinger                   *time.Ticker
+		disconnected             bool
 		onDisconnectListeners    []DisconnectFunc
 		onErrorListeners         []ErrorFunc
 		onNativeMessageListeners []NativeMessageFunc
 		onEventListeners         map[string][]MessageFunc
 		// these were  maden for performance only
-		self      Emmiter // pre-defined emmiter than sends message to its self client
-		broadcast Emmiter // pre-defined emmiter that sends message to all except this
-		all       Emmiter // pre-defined emmiter which sends message to all clients
+		self      Emitter // pre-defined emitter than sends message to its self client
+		broadcast Emitter // pre-defined emitter that sends message to all except this
+		all       Emitter // pre-defined emitter which sends message to all clients
 		// httpRequest is a long-time feature request,
 		// now you have access to the *http.Request which upgraded to be able to use websocket connection
 		httpRequest *http.Request
@@ -123,10 +125,9 @@ var _ Connection = &connection{}
 
 func newConnection(s *server, r *http.Request, underlineConn UnderlineConnection, id string) *connection {
 	c := &connection{
-		underline:   underlineConn,
-		id:          id,
-		messageType: websocket.TextMessage,
-		send:        make(chan []byte, 256),
+		underline:                underlineConn,
+		id:                       id,
+		messageType:              websocket.TextMessage,
 		onDisconnectListeners:    make([]DisconnectFunc, 0),
 		onErrorListeners:         make([]ErrorFunc, 0),
 		onNativeMessageListeners: make([]NativeMessageFunc, 0),
@@ -139,82 +140,71 @@ func newConnection(s *server, r *http.Request, underlineConn UnderlineConnection
 		c.messageType = websocket.BinaryMessage
 	}
 
-	c.self = newEmmiter(c, c.id)
-	c.broadcast = newEmmiter(c, NotMe)
-	c.all = newEmmiter(c, All)
+	c.self = newEmitter(c, c.id)
+	c.broadcast = newEmitter(c, NotMe)
+	c.all = newEmitter(c, All)
 
 	return c
 }
 
-func (c *connection) write(websocketMessageType int, data []byte) error {
+// write writes a raw websocket message with a specific type to the client
+// used by ping messages and any CloseMessage types.
+func (c *connection) write(websocketMessageType int, data []byte) {
+	// set the write timeout based on the configuration
 	c.underline.SetWriteDeadline(time.Now().Add(c.server.config.WriteTimeout))
-	return c.underline.WriteMessage(websocketMessageType, data)
-}
-
-func (c *connection) writer() {
-	ticker := time.NewTicker(c.server.config.PingPeriod)
-	defer func() {
-		ticker.Stop()
+	// .WriteMessage same as NextWriter and close (flush)
+	if err := c.underline.WriteMessage(websocketMessageType, data); err != nil {
+		// if failed then the connection is off, fire the disconnect
 		c.Disconnect()
-	}()
-	defer func() {
-		if err := recover(); err != nil {
-			ticker.Stop()
-			c.server.free <- c
-			c.underline.Close()
-		}
-	}()
-	for {
-		select {
-		case msg, ok := <-c.send:
-			if !ok {
-				c.write(websocket.CloseMessage, []byte{})
-				return
-			}
-
-			c.underline.SetWriteDeadline(time.Now().Add(c.server.config.WriteTimeout))
-			res, err := c.underline.NextWriter(c.messageType)
-			if err != nil {
-				return
-			}
-			res.Write(msg)
-
-			if err := res.Close(); err != nil {
-				return
-			}
-
-		case <-ticker.C:
-			if err := c.write(websocket.PingMessage, []byte{}); err != nil {
-				return
-			}
-		}
 	}
 }
 
-func (c *connection) reader() {
-	defer func() {
-		c.Disconnect()
-	}()
-	conn := c.underline
+// writeDefault is the same as write but the message type is the configured by c.messageType
+// if BinaryMessages is enabled then it's raw []byte as you expected to work with protobufs
+func (c *connection) writeDefault(data []byte) {
+	c.write(c.messageType, data)
+}
 
-	conn.SetReadLimit(c.server.config.MaxMessageSize)
-	conn.SetReadDeadline(time.Now().Add(c.server.config.PongTimeout))
-	conn.SetPongHandler(func(s string) error {
+func (c *connection) startPinger() {
+	go func() {
+		// start a new timer ticker based on the configuration
+		c.pinger = time.NewTicker(c.server.config.PingPeriod)
+		for {
+			// wait for each tick
+			<-c.pinger.C
+			// try to ping the client, if failed then it disconnects
+			c.write(websocket.PingMessage, []byte{})
+		}
+	}()
+}
+
+func (c *connection) startReader() {
+	go func() {
+		defer func() {
+			c.Disconnect()
+		}()
+		conn := c.underline
+
+		conn.SetReadLimit(c.server.config.MaxMessageSize)
 		conn.SetReadDeadline(time.Now().Add(c.server.config.PongTimeout))
-		return nil
-	})
+		conn.SetPongHandler(func(s string) error {
+			conn.SetReadDeadline(time.Now().Add(c.server.config.PongTimeout))
+			return nil
+		})
 
-	for {
-		if _, data, err := conn.ReadMessage(); err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-				c.EmitError(err.Error())
+		for {
+			if _, data, err := conn.ReadMessage(); err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+					c.EmitError(err.Error())
+				}
+				break
+			} else {
+				c.messageReceived(data)
 			}
-			break
-		} else {
-			c.messageReceived(data)
-		}
 
-	}
+		}
+	}()
+
 }
 
 // messageReceived checks the incoming message and fire the nativeMessage listeners or the event listeners (ws custom message)
@@ -293,16 +283,16 @@ func (c *connection) EmitError(errorMessage string) {
 	}
 }
 
-func (c *connection) To(to string) Emmiter {
-	if to == NotMe { // if send to all except me, then return the pre-defined emmiter, and so on
+func (c *connection) To(to string) Emitter {
+	if to == NotMe { // if send to all except me, then return the pre-defined emitter, and so on
 		return c.broadcast
 	} else if to == All {
 		return c.all
 	} else if to == c.id {
 		return c.self
 	}
-	// is an emmiter to another client/connection
-	return newEmmiter(c, to)
+	// is an emitter to another client/connection
+	return newEmitter(c, to)
 }
 
 func (c *connection) EmitMessage(nativeMessage []byte) error {
@@ -326,16 +316,13 @@ func (c *connection) On(event string, cb MessageFunc) {
 }
 
 func (c *connection) Join(roomName string) {
-	payload := websocketRoomPayload{roomName, c.id}
-	c.server.join <- payload
+	c.server.Join(roomName, c.id)
 }
 
 func (c *connection) Leave(roomName string) {
-	payload := websocketRoomPayload{roomName, c.id}
-	c.server.leave <- payload
+	c.server.Leave(roomName, c.id)
 }
 
 func (c *connection) Disconnect() error {
-	c.server.free <- c // leaves from all rooms, fires the disconnect listeners and finally remove from conn list
-	return c.underline.Close()
+	return c.server.Disconnect(c.ID())
 }
