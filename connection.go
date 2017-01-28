@@ -3,8 +3,10 @@ package websocket
 import (
 	"bytes"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -31,6 +33,13 @@ type UnderlineConnection interface {
 	// The appData argument to h is the PONG frame application data. The default
 	// pong handler does nothing.
 	SetPongHandler(h func(appData string) error)
+	// SetPingHandler sets the handler for ping messages received from the peer.
+	// The appData argument to h is the PING frame application data. The default
+	// ping handler sends a pong to the peer.
+	SetPingHandler(h func(appData string) error)
+	// WriteControl writes a control message with the given deadline. The allowed
+	// message types are CloseMessage, PingMessage and PongMessage.
+	WriteControl(messageType int, data []byte, deadline time.Time) error
 	// WriteMessage is a helper method for getting a writer using NextWriter,
 	// writing the message and closing the writer.
 	WriteMessage(messageType int, data []byte) error
@@ -118,6 +127,12 @@ type (
 		// now you have access to the *http.Request which upgraded to be able to use websocket connection
 		httpRequest *http.Request
 		server      *server
+		// #119 , websocket writers are not protected by locks inside the gorilla's websocket code
+		// so we must protect them otherwise we're getting concurrent connection error on multi writers in the same time.
+		writerMu sync.Mutex
+		// same exists for reader look here: https://godoc.org/github.com/gorilla/websocket#hdr-Control_Messages
+		// but we only use one reader in one goroutine, so we are safe.
+		// readerMu sync.Mutex
 	}
 )
 
@@ -150,10 +165,15 @@ func newConnection(s *server, r *http.Request, underlineConn UnderlineConnection
 // write writes a raw websocket message with a specific type to the client
 // used by ping messages and any CloseMessage types.
 func (c *connection) write(websocketMessageType int, data []byte) {
-	// set the write timeout based on the configuration
+	// for any-case the app tries to write from different goroutines,
+	// we must protect them because they're reporting that as bug...
+	c.writerMu.Lock()
+	// set the write deadline based on the configuration
 	c.underline.SetWriteDeadline(time.Now().Add(c.server.config.WriteTimeout))
 	// .WriteMessage same as NextWriter and close (flush)
-	if err := c.underline.WriteMessage(websocketMessageType, data); err != nil {
+	err := c.underline.WriteMessage(websocketMessageType, data)
+	c.writerMu.Unlock()
+	if err != nil {
 		// if failed then the connection is off, fire the disconnect
 		c.Disconnect()
 	}
@@ -165,10 +185,33 @@ func (c *connection) writeDefault(data []byte) {
 	c.write(c.messageType, data)
 }
 
+const (
+	// writeWait is 1 second at the internal implementation,
+	// same as here but this can be changed at the future*
+	writeWait = 1 * time.Second
+)
+
 func (c *connection) startPinger() {
+
+	// this is the default internal handler, we just change the writeWait because of the actions we must do before
+	// the server sends the ping-pong.
+
+	pingHandler := func(message string) error {
+		err := c.underline.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(writeWait))
+		if err == websocket.ErrCloseSent {
+			return nil
+		} else if e, ok := err.(net.Error); ok && e.Temporary() {
+			return nil
+		}
+		return err
+	}
+
+	c.underline.SetPingHandler(pingHandler)
+
+	// start a new timer ticker based on the configuration
+	c.pinger = time.NewTicker(c.server.config.PingPeriod)
+
 	go func() {
-		// start a new timer ticker based on the configuration
-		c.pinger = time.NewTicker(c.server.config.PingPeriod)
 		for {
 			// wait for each tick
 			<-c.pinger.C
@@ -179,21 +222,24 @@ func (c *connection) startPinger() {
 }
 
 func (c *connection) startReader() {
+	conn := c.underline
+
+	conn.SetReadLimit(c.server.config.MaxMessageSize)
+	conn.SetPongHandler(func(s string) error {
+		conn.SetReadDeadline(time.Now().Add(c.server.config.ReadTimeout))
+		return nil
+	})
+
 	go func() {
 		defer func() {
 			c.Disconnect()
 		}()
-		conn := c.underline
-
-		conn.SetReadLimit(c.server.config.MaxMessageSize)
-		conn.SetReadDeadline(time.Now().Add(c.server.config.PongTimeout))
-		conn.SetPongHandler(func(s string) error {
-			conn.SetReadDeadline(time.Now().Add(c.server.config.PongTimeout))
-			return nil
-		})
 
 		for {
-			if _, data, err := conn.ReadMessage(); err != nil {
+			// set the read deadline based on the configuration
+			conn.SetReadDeadline(time.Now().Add(c.server.config.ReadTimeout))
+			_, data, err := conn.ReadMessage()
+			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
 					c.EmitError(err.Error())
 				}

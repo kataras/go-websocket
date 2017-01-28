@@ -257,16 +257,27 @@ func (s *server) HandleConnection(r *http.Request, websocketConn UnderlineConnec
 	c := newConnection(s, r, websocketConn, cid)
 	// add the connection to the server's list
 	s.connections.add(cid, c)
-	// start the ping
-	c.startPinger()
-	// start the messages reader
-	c.startReader()
+
 	// join to itself
 	s.Join(c.ID(), c.ID())
+
+	// NOTE TO ME: fire these first BEFORE startReader and startPinger
+	// in order to set the events and any messages to send
+	// the startPinger will send the OK to the client and only
+	// then the client is able to send and receive from server
+	// when all things are ready and only then. DO NOT change this order.
+
 	// fire the on connection event callbacks, if any
 	for i := range s.onConnectionListeners {
 		s.onConnectionListeners[i](c)
 	}
+
+	// start the messages reader
+	c.startReader()
+
+	// start the ping
+	c.startPinger()
+
 }
 
 /* Notes:

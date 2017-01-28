@@ -9,6 +9,8 @@ import (
 const (
 	// DefaultWebsocketWriteTimeout 15 * time.Second
 	DefaultWebsocketWriteTimeout = 15 * time.Second
+	// DefaultWebsocketReadTimeout 15 * time.Second
+	DefaultWebsocketReadTimeout = 15 * time.Second
 	// DefaultWebsocketPongTimeout 60 * time.Second
 	DefaultWebsocketPongTimeout = 60 * time.Second
 	// DefaultWebsocketPingPeriod (DefaultPongTimeout * 9) / 10
@@ -52,6 +54,9 @@ type Config struct {
 	// WriteTimeout time allowed to write a message to the connection.
 	// Default value is 15 * time.Second
 	WriteTimeout time.Duration
+	// ReadTimeout time allowed to read a message from the connection.
+	// Default value is 15 * time.Second
+	ReadTimeout time.Duration
 	// PongTimeout allowed to read the next pong message from the connection
 	// Default value is 60 * time.Second
 	PongTimeout time.Duration
@@ -101,6 +106,14 @@ func CheckOrigin(val func(req *http.Request) bool) OptionSet {
 func WriteTimeout(val time.Duration) OptionSet {
 	return func(c *Config) {
 		c.WriteTimeout = val
+	}
+}
+
+// ReadTimeout time allowed to read a message from the connection.
+// Default value is 15 * time.Second
+func ReadTimeout(val time.Duration) OptionSet {
+	return func(c *Config) {
+		c.ReadTimeout = val
 	}
 }
 
@@ -163,8 +176,15 @@ func IDGenerator(val func(*http.Request) string) OptionSet {
 
 // Validate validates the configuration
 func (c Config) Validate() Config {
+	// 0 means no timeout but.
+	// I don't approve no timeout things,
+	// so we force the user to use timeouts otherwise the defaults.
 	if c.WriteTimeout <= 0 {
 		c.WriteTimeout = DefaultWebsocketWriteTimeout
+	}
+
+	if c.ReadTimeout <= 0 {
+		c.ReadTimeout = DefaultWebsocketReadTimeout
 	}
 
 	if c.PongTimeout <= 0 {
