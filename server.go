@@ -274,12 +274,12 @@ func (s *server) HandleConnection(websocketConn UnderlineConnection) {
 	for i := range s.onConnectionListeners {
 		s.onConnectionListeners[i](c)
 	}
-
-	// start the messages reader
-	c.startReader()
-
+	
 	// start the ping
 	c.startPinger()
+	
+	// start the messages reader
+	c.startReader()
 
 }
 
