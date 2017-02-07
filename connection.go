@@ -219,27 +219,24 @@ func (c *connection) startReader() {
 		return nil
 	})
 
-	go func() {
-		defer func() {
-			c.Disconnect()
-		}()
-
-		for {
-			// set the read deadline based on the configuration
-			conn.SetReadDeadline(time.Now().Add(c.server.config.ReadTimeout))
-			_, data, err := conn.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
-					c.EmitError(err.Error())
-				}
-				break
-			} else {
-				c.messageReceived(data)
-			}
-
-		}
+	defer func() {
+		c.Disconnect()
 	}()
 
+	for {
+		// set the read deadline based on the configuration
+		conn.SetReadDeadline(time.Now().Add(c.server.config.ReadTimeout))
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+				c.EmitError(err.Error())
+			}
+			break
+		} else {
+			c.messageReceived(data)
+		}
+
+	}
 }
 
 // messageReceived checks the incoming message and fire the nativeMessage listeners or the event listeners (ws custom message)
