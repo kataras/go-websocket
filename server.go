@@ -272,12 +272,11 @@ func (s *server) HandleConnection(r *http.Request, websocketConn UnderlineConnec
 		s.onConnectionListeners[i](c)
 	}
 
-	// start the messages reader
-	c.startReader()
-
 	// start the ping
 	c.startPinger()
 
+	// start the messages reader
+	c.startReader()
 }
 
 /* Notes:

@@ -36,9 +36,6 @@ func main() {
 
 	ws.OnConnection(handleWebsocketConnection) // register the connection handler, which will fire on each new connected websocket client.
 
-	// start the websocket server, you can do it whereven you want but I am choosing to make it  here
-	ws.Serve()
-
 	// End Websocket example code
 
 	// parse our view (the template file)
