@@ -53,6 +53,9 @@ type Server interface {
 	// You can use connection.Leave("room name") instead.
 	Leave(roomName string, connID string)
 
+	// Conns  get connections of a room
+	Conns(roomName string) []string
+
 	// Disconnect force-disconnects a websocket connection
 	// based on its connection.ID()
 	// What it does?
