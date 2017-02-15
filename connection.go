@@ -107,6 +107,10 @@ type (
 		// Disconnect disconnects the client, close the underline websocket conn and removes it from the conn list
 		// returns the error, if any, from the underline connection
 		Disconnect() error
+
+		Set(key string, value string)
+
+		Get(key string) string
 	}
 
 	connection struct {
@@ -133,6 +137,8 @@ type (
 		// same exists for reader look here: https://godoc.org/github.com/gorilla/websocket#hdr-Control_Messages
 		// but we only use one reader in one goroutine, so we are safe.
 		// readerMu sync.Mutex
+		dataMu sync.Mutex
+		data   map[string]string
 	}
 )
 
@@ -149,6 +155,7 @@ func newConnection(s *server, r *http.Request, underlineConn UnderlineConnection
 		onEventListeners:         make(map[string][]MessageFunc, 0),
 		httpRequest:              r,
 		server:                   s,
+		data:                     make(map[string]string, 0),
 	}
 
 	if s.config.BinaryMessages {
@@ -379,4 +386,16 @@ func (c *connection) Leave(roomName string) {
 
 func (c *connection) Disconnect() error {
 	return c.server.Disconnect(c.ID())
+}
+
+func (c *connection) Set(key string, value string) {
+	c.dataMu.Lock()
+	c.data[key] = value
+	c.dataMu.Unlock()
+}
+
+func (c *connection) Get(key string) string {
+	c.dataMu.Lock()
+	defer c.dataMu.Unlock()
+	return c.data[key]
 }
