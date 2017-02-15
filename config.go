@@ -6,10 +6,10 @@ import (
 )
 
 const (
-	// DefaultWebsocketWriteTimeout 15 * time.Second
-	DefaultWebsocketWriteTimeout = 15 * time.Second
-	// DefaultWebsocketReadTimeout 15 * time.Second
-	DefaultWebsocketReadTimeout = 15 * time.Second
+	// DefaultWebsocketWriteTimeout 0, no timeout
+	DefaultWebsocketWriteTimeout = 0
+	// DefaultWebsocketReadTimeout 0, no timeout
+	DefaultWebsocketReadTimeout = 0
 	// DefaultWebsocketPongTimeout 60 * time.Second
 	DefaultWebsocketPongTimeout = 60 * time.Second
 	// DefaultWebsocketPingPeriod (DefaultPongTimeout * 9) / 10
@@ -51,18 +51,20 @@ type Config struct {
 	Error       func(res http.ResponseWriter, req *http.Request, status int, reason error)
 	CheckOrigin func(req *http.Request) bool
 	// WriteTimeout time allowed to write a message to the connection.
-	// Default value is 15 * time.Second
+	// 0 means no timeout.
+	// Default value is 0
 	WriteTimeout time.Duration
 	// ReadTimeout time allowed to read a message from the connection.
-	// Default value is 15 * time.Second
+	// 0 means no timeout.
+	// Default value is 0
 	ReadTimeout time.Duration
-	// PongTimeout allowed to read the next pong message from the connection
+	// PongTimeout allowed to read the next pong message from the connection.
 	// Default value is 60 * time.Second
 	PongTimeout time.Duration
-	// PingPeriod send ping messages to the connection with this period. Must be less than PongTimeout
-	// Default value is (PongTimeout * 9) / 10
+	// PingPeriod send ping messages to the connection with this period. Must be less than PongTimeout.
+	// Default value is 60 *time.Second
 	PingPeriod time.Duration
-	// MaxMessageSize max message size allowed from connection
+	// MaxMessageSize max message size allowed from connection.
 	// Default value is 1024
 	MaxMessageSize int64
 	// BinaryMessages set it to true in order to denotes binary data messages instead of utf-8 text
@@ -70,8 +72,10 @@ type Config struct {
 	// defaults to false
 	BinaryMessages bool
 	// ReadBufferSize is the buffer size for the underline reader
+	// Default value is 4096
 	ReadBufferSize int
 	// WriteBufferSize is the buffer size for the underline writer
+	// Default value is 4096
 	WriteBufferSize int
 	// IDGenerator used to create (and later on, set)
 	// an ID for each incoming websocket connections (clients).
@@ -186,22 +190,21 @@ func IDGenerator(val func(*http.Request) string) OptionSet {
 
 // Validate validates the configuration
 func (c Config) Validate() Config {
-	// 0 means no timeout but.
-	// I don't approve no timeout things,
-	// so we force the user to use timeouts otherwise the defaults.
-	if c.WriteTimeout.Seconds() <= 0 {
+
+	// 0 means no timeout.
+	if c.WriteTimeout < 0 {
 		c.WriteTimeout = DefaultWebsocketWriteTimeout
 	}
 
-	if c.ReadTimeout.Seconds() <= 0 {
+	if c.ReadTimeout < 0 {
 		c.ReadTimeout = DefaultWebsocketReadTimeout
 	}
 
-	if c.PongTimeout.Seconds() <= 0 {
+	if c.PongTimeout < 0 {
 		c.PongTimeout = DefaultWebsocketPongTimeout
 	}
 
-	if c.PingPeriod.Seconds() <= 0 {
+	if c.PingPeriod <= 0 {
 		c.PingPeriod = DefaultWebsocketPingPeriod
 	}
 

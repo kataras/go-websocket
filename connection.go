@@ -168,8 +168,12 @@ func (c *connection) write(websocketMessageType int, data []byte) {
 	// for any-case the app tries to write from different goroutines,
 	// we must protect them because they're reporting that as bug...
 	c.writerMu.Lock()
-	// set the write deadline based on the configuration
-	c.underline.SetWriteDeadline(time.Now().Add(c.server.config.WriteTimeout))
+
+	if writeTimeout := c.server.config.WriteTimeout; writeTimeout > 0 {
+		// set the write deadline based on the configuration
+		c.underline.SetWriteDeadline(time.Now().Add(writeTimeout))
+	}
+
 	// .WriteMessage same as NextWriter and close (flush)
 	err := c.underline.WriteMessage(websocketMessageType, data)
 	c.writerMu.Unlock()
@@ -186,9 +190,9 @@ func (c *connection) writeDefault(data []byte) {
 }
 
 const (
-	// writeWait is 1 second at the internal implementation,
+	// WriteWait is 1 second at the internal implementation,
 	// same as here but this can be changed at the future*
-	writeWait = 1 * time.Second
+	WriteWait = 1 * time.Second
 )
 
 func (c *connection) startPinger() {
@@ -197,7 +201,7 @@ func (c *connection) startPinger() {
 	// the server sends the ping-pong.
 
 	pingHandler := func(message string) error {
-		err := c.underline.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(writeWait))
+		err := c.underline.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(WriteWait))
 		if err == websocket.ErrCloseSent {
 			return nil
 		} else if e, ok := err.(net.Error); ok && e.Temporary() {
@@ -223,20 +227,26 @@ func (c *connection) startPinger() {
 
 func (c *connection) startReader() {
 	conn := c.underline
+	hasReadTimeout := c.server.config.ReadTimeout > 0
 
 	conn.SetReadLimit(c.server.config.MaxMessageSize)
 	conn.SetPongHandler(func(s string) error {
-		conn.SetReadDeadline(time.Now().Add(c.server.config.ReadTimeout))
+		if hasReadTimeout {
+			conn.SetReadDeadline(time.Now().Add(c.server.config.ReadTimeout))
+		}
+
 		return nil
 	})
-	
+
 	defer func() {
 		c.Disconnect()
 	}()
 
 	for {
-		// set the read deadline based on the configuration
-		conn.SetReadDeadline(time.Now().Add(c.server.config.ReadTimeout))
+		if hasReadTimeout {
+			// set the read deadline based on the configuration
+			conn.SetReadDeadline(time.Now().Add(c.server.config.ReadTimeout))
+		}
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
