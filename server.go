@@ -385,6 +385,16 @@ func (s *server) Leave(roomName string, connID string) {
 	s.mu.Unlock()
 }
 
+// Conns can get conns of a room
+func (s *server) Conns(roomName string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rooms[roomName] != nil {
+		return s.rooms[roomName]
+	}
+	return make([]string, 0)
+}
+
 // leave used internally, no locks used.
 func (s *server) leave(roomName string, connID string) {
 	///THINK: we could add locks to its room but we still use the lock for the whole rooms or we can just do what we do with connections
