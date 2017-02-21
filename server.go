@@ -53,6 +53,9 @@ type Server interface {
 	// You can use connection.Leave("room name") instead.
 	Leave(roomName string, connID string)
 
+	// Conns  get connections of a room
+	Conns(roomName string) []string
+
 	// Disconnect force-disconnects a websocket connection
 	// based on its connection.ID()
 	// What it does?
@@ -383,6 +386,16 @@ func (s *server) Leave(roomName string, connID string) {
 	s.mu.Lock()
 	s.leave(roomName, connID)
 	s.mu.Unlock()
+}
+
+// Conns can get conns of a room
+func (s *server) Conns(roomName string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rooms[roomName] != nil {
+		return s.rooms[roomName]
+	}
+	return make([]string, 0)
 }
 
 // leave used internally, no locks used.
