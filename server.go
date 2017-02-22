@@ -496,14 +496,15 @@ func Disconnect(connID string) error {
 //
 // You can use the connection.Disconnect() instead.
 func (s *server) Disconnect(connID string) (err error) {
+	// leave from all joined rooms before actually remove the connection from the list
+	s.LeaveAll(connID)
+
 	// remove the connection from the list
 	if c, ok := s.connections.remove(connID); ok {
 		if !c.disconnected {
 			c.disconnected = true
 			// stop the ping timer
 			c.pinger.Stop()
-			// leave from all joined rooms
-			s.LeaveAll(connID)
 			// fire the disconnect callbacks, if any
 			c.fireDisconnect()
 			// close the underline connection and return its error, if any.
