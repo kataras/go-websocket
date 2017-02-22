@@ -12,6 +12,61 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type (
+	connectionValue struct {
+		key   []byte
+		value interface{}
+	}
+	// ConnectionValues is the temporary connection's memory store
+	ConnectionValues []connectionValue
+)
+
+// Set sets a value based on the key
+func (r *ConnectionValues) Set(key string, value interface{}) {
+	args := *r
+	n := len(args)
+	for i := 0; i < n; i++ {
+		kv := &args[i]
+		if string(kv.key) == key {
+			kv.value = value
+			return
+		}
+	}
+
+	c := cap(args)
+	if c > n {
+		args = args[:n+1]
+		kv := &args[n]
+		kv.key = append(kv.key[:0], key...)
+		kv.value = value
+		*r = args
+		return
+	}
+
+	kv := connectionValue{}
+	kv.key = append(kv.key[:0], key...)
+	kv.value = value
+	*r = append(args, kv)
+}
+
+// Get returns a value based on its key
+func (r *ConnectionValues) Get(key string) interface{} {
+	args := *r
+	n := len(args)
+	for i := 0; i < n; i++ {
+		kv := &args[i]
+		if string(kv.key) == key {
+			return kv.value
+		}
+	}
+	return nil
+}
+
+// Reset clears the values
+func (r *ConnectionValues) Reset() {
+	*r = (*r)[:0]
+}
+
 // UnderlineConnection is used for compatible with fasthttp and net/http underline websocket libraries
 // we only need ~8 funcs from websocket.Conn so:
 type UnderlineConnection interface {
@@ -84,7 +139,8 @@ type (
 		// websocket has everything you need to authenticate the user BUT if it's necessary
 		// then  you use it to receive user information, for example: from headers
 		Request() *http.Request
-
+		// Values returns the temporary lock-free connection's data store
+		Values() ConnectionValues
 		// OnDisconnect registers a callback which fires when this connection is closed by an error or manual
 		OnDisconnect(DisconnectFunc)
 		// OnError registers a callback which fires when this connection occurs an error
@@ -107,10 +163,6 @@ type (
 		// Disconnect disconnects the client, close the underline websocket conn and removes it from the conn list
 		// returns the error, if any, from the underline connection
 		Disconnect() error
-
-		Set(key string, value string)
-
-		Get(key string) string
 	}
 
 	connection struct {
@@ -130,6 +182,7 @@ type (
 		// httpRequest is a long-time feature request,
 		// now you have access to the *http.Request which upgraded to be able to use websocket connection
 		httpRequest *http.Request
+		values      ConnectionValues
 		server      *server
 		// #119 , websocket writers are not protected by locks inside the gorilla's websocket code
 		// so we must protect them otherwise we're getting concurrent connection error on multi writers in the same time.
@@ -137,8 +190,6 @@ type (
 		// same exists for reader look here: https://godoc.org/github.com/gorilla/websocket#hdr-Control_Messages
 		// but we only use one reader in one goroutine, so we are safe.
 		// readerMu sync.Mutex
-		dataMu sync.Mutex
-		data   map[string]string
 	}
 )
 
@@ -155,7 +206,6 @@ func newConnection(s *server, r *http.Request, underlineConn UnderlineConnection
 		onEventListeners:         make(map[string][]MessageFunc, 0),
 		httpRequest:              r,
 		server:                   s,
-		data:                     make(map[string]string, 0),
 	}
 
 	if s.config.BinaryMessages {
@@ -324,6 +374,10 @@ func (c *connection) Request() *http.Request {
 	return c.httpRequest
 }
 
+func (c *connection) Values() ConnectionValues {
+	return c.values
+}
+
 func (c *connection) fireDisconnect() {
 	for i := range c.onDisconnectListeners {
 		c.onDisconnectListeners[i]()
@@ -386,16 +440,4 @@ func (c *connection) Leave(roomName string) {
 
 func (c *connection) Disconnect() error {
 	return c.server.Disconnect(c.ID())
-}
-
-func (c *connection) Set(key string, value string) {
-	c.dataMu.Lock()
-	c.data[key] = value
-	c.dataMu.Unlock()
-}
-
-func (c *connection) Get(key string) string {
-	c.dataMu.Lock()
-	defer c.dataMu.Unlock()
-	return c.data[key]
 }
