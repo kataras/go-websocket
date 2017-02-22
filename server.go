@@ -497,6 +497,7 @@ func Disconnect(connID string) error {
 // You can use the connection.Disconnect() instead.
 func (s *server) Disconnect(connID string) (err error) {
 	// leave from all joined rooms before actually remove the connection from the list
+	// note: you cannot use that to send data if the client is actually closed.
 	s.LeaveAll(connID)
 
 	// remove the connection from the list
