@@ -54,8 +54,9 @@ type Server interface {
 	// Returns true if the connection has actually left from the particular room.
 	Leave(roomName string, connID string) bool
 
-	// Conns returns a list of connection IDs participated in a particular room.
-	Conns(roomName string) []string
+	// GetConnectionsByRoom returns a list of Connection
+	// are joined to this room.
+	GetConnectionsByRoom(roomName string) []Connection
 
 	// Disconnect force-disconnects a websocket connection
 	// based on its connection.ID()
@@ -419,19 +420,25 @@ func (s *server) leave(roomName string, connID string) (left bool) {
 	return
 }
 
-// Conns returns a list of connection IDs participated in a particular room.
-func Conns(roomName string) []string {
-	return defaultServer.Conns(roomName)
+// GetConnectionsByRoom returns a list of Connection
+// which are joined to this room.
+func GetConnectionsByRoom(roomName string) []Connection {
+	return defaultServer.GetConnectionsByRoom(roomName)
 }
 
-// Conns returns a list of connection IDs participated in a particular room.
-func (s *server) Conns(roomName string) []string {
+// GetConnectionsByRoom returns a list of Connection
+// which are joined to this room.
+func (s *server) GetConnectionsByRoom(roomName string) []Connection {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.rooms[roomName] != nil {
-		return s.rooms[roomName]
+	var conns []Connection
+	if connIDs, found := s.rooms[roomName]; found {
+		for _, connID := range connIDs {
+			conns = append(conns, s.connections.get(connID))
+		}
+
 	}
-	return make([]string, 0)
+	s.mu.Unlock()
+	return conns
 }
 
 // emitMessage is the main 'router' of the messages coming from the connection
