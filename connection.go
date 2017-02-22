@@ -120,6 +120,10 @@ type UnderlineConnection interface {
 type (
 	// DisconnectFunc is the callback which fires when a client/connection closed
 	DisconnectFunc func()
+	// LeaveRoomFunc is the callback which fires when a client/connection leaves from any room.
+	// This is called automatically when client/connection disconnected
+	// (because websocket server automatically leaves from all joined rooms)
+	LeaveRoomFunc func(roomName string)
 	// ErrorFunc is the callback which fires when an error happens
 	ErrorFunc (func(string))
 	// NativeMessageFunc is the callback for native websocket messages, receives one []byte parameter which is the raw client's message
@@ -159,7 +163,15 @@ type (
 		// Join join a connection to a room, it doesn't check if connection is already there, so care
 		Join(string)
 		// Leave removes a connection from a room
-		Leave(string)
+		// Returns true if the connection has actually left from the particular room.
+		Leave(string) bool
+		// OnLeave registeres a callback which fires when this connection left from any joined room.
+		// This callback is called automatically on Disconnected client, because websocket server automatically
+		// deletes the disconnected connection from any joined rooms.
+		//
+		// Note: the callback(s) called right before the server deletes the connection from the room
+		// so the connection theoritical can still send messages to its room right before it is being disconnected.
+		OnLeave(roomLeaveCb LeaveRoomFunc)
 		// Disconnect disconnects the client, close the underline websocket conn and removes it from the conn list
 		// returns the error, if any, from the underline connection
 		Disconnect() error
@@ -172,6 +184,7 @@ type (
 		pinger                   *time.Ticker
 		disconnected             bool
 		onDisconnectListeners    []DisconnectFunc
+		onRoomLeaveListeners     []LeaveRoomFunc
 		onErrorListeners         []ErrorFunc
 		onNativeMessageListeners []NativeMessageFunc
 		onEventListeners         map[string][]MessageFunc
@@ -201,6 +214,7 @@ func newConnection(s *server, r *http.Request, underlineConn UnderlineConnection
 		id:                       id,
 		messageType:              websocket.TextMessage,
 		onDisconnectListeners:    make([]DisconnectFunc, 0),
+		onRoomLeaveListeners:     make([]LeaveRoomFunc, 0),
 		onErrorListeners:         make([]ErrorFunc, 0),
 		onNativeMessageListeners: make([]NativeMessageFunc, 0),
 		onEventListeners:         make(map[string][]MessageFunc, 0),
@@ -434,8 +448,20 @@ func (c *connection) Join(roomName string) {
 	c.server.Join(roomName, c.id)
 }
 
-func (c *connection) Leave(roomName string) {
-	c.server.Leave(roomName, c.id)
+func (c *connection) Leave(roomName string) bool {
+	return c.server.Leave(roomName, c.id)
+}
+
+func (c *connection) OnLeave(roomLeaveCb LeaveRoomFunc) {
+	c.onRoomLeaveListeners = append(c.onRoomLeaveListeners, roomLeaveCb)
+	// note: the callbacks are called from the server on the '.leave' and '.LeaveAll' funcs.
+}
+
+func (c *connection) fireOnLeave(roomName string) {
+	// fire the onRoomLeaveListeners
+	for i := range c.onRoomLeaveListeners {
+		c.onRoomLeaveListeners[i](roomName)
+	}
 }
 
 func (c *connection) Disconnect() error {

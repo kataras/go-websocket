@@ -51,7 +51,8 @@ type Server interface {
 	// first parameter is the room name and the second the connection.ID()
 	//
 	// You can use connection.Leave("room name") instead.
-	Leave(roomName string, connID string)
+	// Returns true if the connection has actually left from the particular room.
+	Leave(roomName string, connID string) bool
 
 	// Conns returns a list of connection IDs participated in a particular room.
 	Conns(roomName string) []string
@@ -361,6 +362,8 @@ func (s *server) LeaveAll(connID string) {
 	for name, connectionIDs := range s.rooms {
 		for i := range connectionIDs {
 			if connectionIDs[i] == connID {
+				// fire the on room leave connection's listeners
+				s.connections.get(connID).fireOnLeave(name)
 				// the connection is inside this room, lets remove it
 				s.rooms[name][i] = s.rooms[name][len(s.rooms[name])-1]
 				s.rooms[name] = s.rooms[name][:len(s.rooms[name])-1]
@@ -374,6 +377,7 @@ func (s *server) LeaveAll(connID string) {
 // first parameter is the room name and the second the connection.ID()
 //
 // You can use connection.Leave("room name") instead.
+// Returns true if the connection has actually left from the particular room.
 func Leave(roomName string, connID string) {
 	defaultServer.Leave(roomName, connID)
 }
@@ -382,10 +386,42 @@ func Leave(roomName string, connID string) {
 // first parameter is the room name and the second the connection.ID()
 //
 // You can use connection.Leave("room name") instead.
-func (s *server) Leave(roomName string, connID string) {
+// Returns true if the connection has actually left from the particular room.
+func (s *server) Leave(roomName string, connID string) bool {
 	s.mu.Lock()
-	s.leave(roomName, connID)
+	left := s.leave(roomName, connID)
 	s.mu.Unlock()
+	return left
+}
+
+// leave used internally, no locks used.
+func (s *server) leave(roomName string, connID string) (left bool) {
+	///THINK: we could add locks to its room but we still use the lock for the whole rooms or we can just do what we do with connections
+	// I will think about it on the next revision, so far we use the locks only for rooms so we are ok...
+	if s.rooms[roomName] != nil {
+		for i := range s.rooms[roomName] {
+			if s.rooms[roomName][i] == connID {
+				s.rooms[roomName][i] = s.rooms[roomName][len(s.rooms[roomName])-1]
+				s.rooms[roomName] = s.rooms[roomName][:len(s.rooms[roomName])-1]
+				left = true
+				break
+			}
+		}
+		if len(s.rooms[roomName]) == 0 { // if room is empty then delete it
+			delete(s.rooms, roomName)
+		}
+	}
+
+	if left {
+		// fire the on room leave connection's listeners
+		s.connections.get(connID).fireOnLeave(roomName)
+	}
+	return
+}
+
+// Conns returns a list of connection IDs participated in a particular room.
+func Conns(roomName string) []string {
+	return defaultServer.Conns(roomName)
 }
 
 // Conns returns a list of connection IDs participated in a particular room.
@@ -396,24 +432,6 @@ func (s *server) Conns(roomName string) []string {
 		return s.rooms[roomName]
 	}
 	return make([]string, 0)
-}
-
-// leave used internally, no locks used.
-func (s *server) leave(roomName string, connID string) {
-	///THINK: we could add locks to its room but we still use the lock for the whole rooms or we can just do what we do with connections
-	// I will think about it on the next revision, so far we use the locks only for rooms so we are ok...
-	if s.rooms[roomName] != nil {
-		for i := range s.rooms[roomName] {
-			if s.rooms[roomName][i] == connID {
-				s.rooms[roomName][i] = s.rooms[roomName][len(s.rooms[roomName])-1]
-				s.rooms[roomName] = s.rooms[roomName][:len(s.rooms[roomName])-1]
-				break
-			}
-		}
-		if len(s.rooms[roomName]) == 0 { // if room is empty then delete it
-			delete(s.rooms, roomName)
-		}
-	}
 }
 
 // emitMessage is the main 'router' of the messages coming from the connection
