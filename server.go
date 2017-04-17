@@ -451,7 +451,9 @@ func (s *server) GetConnectionsByRoom(roomName string) []Connection {
 // You SHOULD use connection.EmitMessage/Emit/To().Emit/EmitMessage instead.
 // let's keep it unexported for the best.
 func (s *server) emitMessage(from, to string, data []byte) {
-	if to != All && to != NotMe && s.rooms[to] != nil {
+	if to != All && to != NotMe {
+		// check if room exists
+		if s.rooms[to] == nil { return }
 		// it suppose to send the message to a specific room/or a user inside its own room
 		for _, connectionIDInsideRoom := range s.rooms[to] {
 			if c := s.connections.get(connectionIDInsideRoom); c != nil {
@@ -466,15 +468,12 @@ func (s *server) emitMessage(from, to string, data []byte) {
 			}
 		}
 	} else {
-		// it suppose to send the message to all opened connections or to all except the sender
+		// [All or NotMe] it suppose to send the message to all opened connections or to all except the sender
 		for _, cKV := range s.connections {
 			connID := cKV.key
-			if to != All && to != connID { // if it's not suppose to send to all connections (including itself)
-				if to == NotMe && from == connID { // if broadcast to other connections except this
-					continue //here we do the opossite of previous block,
-					// just skip this connection when it's suppose to send the message to all connections except the sender
-				}
-
+			if to == NotMe && from == connID {
+				// just skip this connection when it's suppose to send the message to all connections except the sender
+				continue
 			}
 			// send to the client(s) when the top validators passed
 			cKV.value.writeDefault(data)
