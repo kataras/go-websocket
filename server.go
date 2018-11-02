@@ -1,276 +1,103 @@
 package websocket
 
 import (
+	"bytes"
+	"fmt"
 	"net/http"
 	"sync"
 
 	"github.com/gorilla/websocket"
 )
 
-// Server is the websocket server,
-// listens on the config's port, the critical part is the event OnConnection
-type Server interface {
-	// Set sets an option aka configuration field to the websocket server
-	Set(...OptionSetter)
-	// Handler returns the http.Handler which is setted to the 'Websocket Endpoint path', the client should target to this handler's developer's custom path
-	// ex: http.Handle("/myendpoint", mywebsocket.Handler())
-	// Handler calls the HandleConnection, so
-	// Use Handler or HandleConnection manually, DO NOT USE both.
-	// Note: you can always create your own upgrader which returns an UnderlineConnection and call only the HandleConnection manually (as Iris web framework does)
-	Handler() http.Handler
-	// HandleConnection creates & starts to listening to a new connection
-	// DO NOT USE Handler() and HandleConnection at the sametime, see Handler for more
-	// NOTE: You don't need this, this is needed only when we want to 'hijack' the upgrader
-	// (used for Iris and fasthttp before Iris v6)
-	HandleConnection(*http.Request, UnderlineConnection)
-	// OnConnection this is the main event you, as developer, will work with each of the websocket connections
-	OnConnection(cb ConnectionFunc)
-
-	/*
-	   connection actions, same as the connection's method,
-	    but these methods accept the connection ID,
-	    which is useful when the developer maps
-	    this id with a database field (using config.IDGenerator).
-	*/
-
-	// IsConnected returns true if the connection with that ID is connected to the server
-	// useful when you have defined a custom connection id generator (based on a database)
-	// and you want to check if that connection is already connected (on multiple tabs)
-	IsConnected(connID string) bool
-
-	// Join joins a websocket client to a room,
-	// first parameter is the room name and the second the connection.ID()
-	//
-	// You can use connection.Join("room name") instead.
-	Join(roomName string, connID string)
-
-	// LeaveAll kicks out a connection from ALL of its joined rooms
-	LeaveAll(connID string)
-
-	// Leave leaves a websocket client from a room,
-	// first parameter is the room name and the second the connection.ID()
-	//
-	// You can use connection.Leave("room name") instead.
-	// Returns true if the connection has actually left from the particular room.
-	Leave(roomName string, connID string) bool
-
-	// GetConnectionsByRoom returns a list of Connection
-	// are joined to this room.
-	GetConnectionsByRoom(roomName string) []Connection
-
-	// Disconnect force-disconnects a websocket connection
-	// based on its connection.ID()
-	// What it does?
-	// 1. remove the connection from the list
-	// 2. leave from all joined rooms
-	// 3. fire the disconnect callbacks, if any
-	// 4. close the underline connection and return its error, if any.
-	//
-	// You can use the connection.Disconnect() instead.
-	Disconnect(connID string) error
-}
-
-// -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
-// --------------------------------Connection key-based list----------------------------
-// -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
-
-type connectionKV struct {
-	key   string // the connection ID
-	value *connection
-}
-
-type connections []connectionKV
-
-func (cs *connections) add(key string, value *connection) {
-	args := *cs
-	n := len(args)
-	// check if already id/key exist, if yes replace the conn
-	for i := 0; i < n; i++ {
-		kv := &args[i]
-		if kv.key == key {
-			kv.value = value
-			return
-		}
-	}
-
-	c := cap(args)
-	// make the connections slice bigger and put the conn
-	if c > n {
-		args = args[:n+1]
-		kv := &args[n]
-		kv.key = key
-		kv.value = value
-		*cs = args
-		return
-	}
-	// append to the connections slice and put the conn
-	kv := connectionKV{}
-	kv.key = key
-	kv.value = value
-	*cs = append(args, kv)
-}
-
-func (cs *connections) get(key string) *connection {
-	args := *cs
-	n := len(args)
-	for i := 0; i < n; i++ {
-		kv := &args[i]
-		if kv.key == key {
-			return kv.value
-		}
-	}
-	return nil
-}
-
-// returns the connection which removed and a bool value of found or not
-// the connection is useful to fire the disconnect events, we use that form in order to
-// make work things faster without the need of get-remove, just -remove should do the job.
-func (cs *connections) remove(key string) (*connection, bool) {
-	args := *cs
-	n := len(args)
-	for i := 0; i < n; i++ {
-		kv := &args[i]
-		if kv.key == key {
-			conn := kv.value
-			// we found the index,
-			// let's remove the item by appending to the temp and
-			// after set the pointer of the slice to this temp args
-			args = append(args[:i], args[i+1:]...)
-			*cs = args
-			return conn, true
-		}
-	}
-	return nil, false
-}
-
-// -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
-// --------------------------------Server implementation--------------------------------
-// -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
-
 type (
-	// ConnectionFunc is the callback which fires when a client/connection is connected to the server.
+	// ConnectionFunc is the callback which fires when a client/connection is connected to the Server.
 	// Receives one parameter which is the Connection
 	ConnectionFunc func(Connection)
 
-	// websocketRoomPayload is used as payload from the connection to the server
+	// websocketRoomPayload is used as payload from the connection to the Server
 	websocketRoomPayload struct {
 		roomName     string
 		connectionID string
 	}
 
-	// payloads, connection -> server
+	// payloads, connection -> Server
 	websocketMessagePayload struct {
 		from string
 		to   string
 		data []byte
 	}
 
-	server struct {
-		config                Config
-		connections           connections
+	// Server is the websocket Server's implementation.
+	//
+	// It listens for websocket clients (either from the javascript client-side or from any websocket implementation).
+	// See `OnConnection` , to register a single event which will handle all incoming connections and
+	// the `Handler` which builds the upgrader handler that you can register to a route based on an Endpoint.
+	//
+	// To serve the built'n javascript client-side library look the `websocket.ClientHandler`.
+	Server struct {
+		config Config
+		// ClientSource contains the javascript side code
+		// for the websocket communication
+		// based on the configuration's `EvtMessagePrefix`.
+		//
+		// Use a route to serve this file on a specific path, i.e
+		// mux.HandleFUNC("/go-websocket.js", func(w http.ResponseWriter, _ *http.Request) { w.Write(mywebsocketServer.ClientSource) })
+		ClientSource          []byte
+		messageSerializer     *messageSerializer
+		connections           sync.Map            // key = the Connection ID.
 		rooms                 map[string][]string // by default a connection is joined to a room which has the connection id as its name
-		mu                    sync.Mutex          // for rooms
+		mu                    sync.RWMutex        // for rooms.
 		onConnectionListeners []ConnectionFunc
-		//connectionPool        *sync.Pool // sadly I can't make this because the websocket connection is live until is closed.
+		//connectionPool        sync.Pool // sadly we can't make this because the websocket connection is live until is closed.
+		upgrader websocket.Upgrader
 	}
 )
 
-var _ Server = &server{}
-
-var defaultServer = newServer()
-
-// server implementation
-
-// New creates a websocket server and returns it
-func New(setters ...OptionSetter) Server {
-	return newServer(setters...)
-}
-
-// newServer creates a websocket server and returns it
-func newServer(setters ...OptionSetter) *server {
-
-	s := &server{
-		rooms: make(map[string][]string, 0),
+// New returns a new websocket Server based on a configuration.
+// See `OnConnection` , to register a single event which will handle all incoming connections and
+// the `Handler` which builds the upgrader handler that you can register to a route based on an Endpoint.
+//
+// To serve the built'n javascript client-side library look the `websocket.ClientHandler`.
+func New(cfg Config) *Server {
+	cfg = cfg.Validate()
+	return &Server{
+		config:                cfg,
+		ClientSource:          bytes.Replace(ClientSource, []byte(DefaultEvtMessageKey), cfg.EvtMessagePrefix, -1),
+		messageSerializer:     newMessageSerializer(cfg.EvtMessagePrefix),
+		connections:           sync.Map{}, // ready-to-use, this is not necessary.
+		rooms:                 make(map[string][]string),
 		onConnectionListeners: make([]ConnectionFunc, 0),
+		upgrader: websocket.Upgrader{
+			HandshakeTimeout:  cfg.HandshakeTimeout,
+			ReadBufferSize:    cfg.ReadBufferSize,
+			WriteBufferSize:   cfg.WriteBufferSize,
+			Error:             cfg.Error,
+			CheckOrigin:       cfg.CheckOrigin,
+			Subprotocols:      cfg.Subprotocols,
+			EnableCompression: cfg.EnableCompression,
+		},
 	}
-
-	s.Set(setters...)
-	return s
 }
 
-// Set sets an option aka configuration field to the default websocket server
-func Set(setters ...OptionSetter) {
-	defaultServer.Set(setters...)
-}
-
-// Set sets an option aka configuration field to the websocket server
-func (s *server) Set(setters ...OptionSetter) {
-	for _, setter := range setters {
-		setter.Set(&s.config)
+// Handler is the websocket handler which registers the endpoint's handler
+// and fires the events to the registered `OnConnection` event.
+// It should be called once per Server, its result should be passed
+// as a route handler to register the websocket's endpoint.
+//
+// Endpoint is the path which the websocket Server will listen for clients/connections.
+//
+// To serve the built'n javascript client-side library look the `websocket.ClientHandler`.
+// This handles any websocket error, use the `Upgrade` for custom error reporting and connection handling.
+func (s *Server) Handler(w http.ResponseWriter, r *http.Request) {
+	c := s.Upgrade(w, r)
+	if c.Err() != nil {
+		http.Error(w, fmt.Sprintf("websocket error: %v\n", c.Err()), http.StatusServiceUnavailable)
+		return
 	}
-
-	s.config = s.config.Validate() // validate the fields on each call
-}
-
-// Handler returns the http.Handler which is setted to the
-// 'Websocket Endpoint path', the client should target to this handler's developer's custom path
-// ex: http.Handle("/myendpoint", mywebsocket.Handler())
-// Handler calls the HandleConnection, so
-// Use Handler or HandleConnection manually, DO NOT USE both.
-// Note: you can always create your own upgrader
-// which returns an UnderlineConnection and call only the HandleConnection manually (as Iris web framework does)
-func Handler() http.Handler {
-	return defaultServer.Handler()
-}
-
-func (s *server) Handler() http.Handler {
-	// build the upgrader once
-	c := s.config
-
-	upgrader := websocket.Upgrader{ReadBufferSize: c.ReadBufferSize, WriteBufferSize: c.WriteBufferSize, Error: c.Error, CheckOrigin: c.CheckOrigin}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Upgrade upgrades the HTTP server connection to the WebSocket protocol.
-		//
-		// The responseHeader is included in the response to the client's upgrade
-		// request. Use the responseHeader to specify cookies (Set-Cookie) and the
-		// application negotiated subprotocol (Sec--Protocol).
-		//
-		// If the upgrade fails, then Upgrade replies to the client with an HTTP error
-		// response.
-		conn, err := upgrader.Upgrade(w, r, w.Header())
-		if err != nil {
-			http.Error(w, "Websocket Error: "+err.Error(), http.StatusServiceUnavailable)
-			return
-		}
-		s.HandleConnection(r, conn)
-	})
-}
-
-// HandleConnection creates & starts to listening to a new connection
-func HandleConnection(r *http.Request, websocketConn UnderlineConnection) {
-	defaultServer.HandleConnection(r, websocketConn)
-}
-
-// HandleConnection creates & starts to listening to a new connection
-func (s *server) HandleConnection(r *http.Request, websocketConn UnderlineConnection) {
-	// use the config's id generator (or the default) to create a websocket client/connection id
-	cid := s.config.IDGenerator(r)
-	// create the new connection
-	c := newConnection(s, r, websocketConn, cid)
-	// add the connection to the server's list
-	s.connections.add(cid, c)
-
-	// join to itself
-	s.Join(c.ID(), c.ID())
-
 	// NOTE TO ME: fire these first BEFORE startReader and startPinger
 	// in order to set the events and any messages to send
 	// the startPinger will send the OK to the client and only
-	// then the client is able to send and receive from server
+	// then the client is able to send and receive from Server
 	// when all things are ready and only then. DO NOT change this order.
 
 	// fire the on connection event callbacks, if any
@@ -278,11 +105,64 @@ func (s *server) HandleConnection(r *http.Request, websocketConn UnderlineConnec
 		s.onConnectionListeners[i](c)
 	}
 
-	// start the ping
-	c.startPinger()
+	// start the ping and the messages reader
+	c.Wait()
+}
 
-	// start the messages reader
-	c.startReader()
+// Upgrade upgrades the HTTP Server connection to the WebSocket protocol.
+//
+// The responseHeader is included in the response to the client's upgrade
+// request. Use the responseHeader to specify cookies (Set-Cookie) and the
+// application negotiated subprotocol (Sec--Protocol).
+//
+// If the upgrade fails, then Upgrade replies to the client with an HTTP error
+// response and the return `Connection.Err()` is filled with that error.
+//
+// For a more high-level function use the `Handler()` and `OnConnecton` events.
+// This one does not starts the connection's writer and reader, so after your `On/OnMessage` events registration
+// the caller has to call the `Connection#Wait` function, otherwise the connection will be not handled.
+//
+// Caller should handle the error based on the connection's Err().
+func (s *Server) Upgrade(w http.ResponseWriter, r *http.Request) Connection {
+	conn, err := s.upgrader.Upgrade(w, r, w.Header())
+	if err != nil {
+		// caller should handle the error: http.Error(w, fmt.Sprintf("websocket error: %v\n", err), http.StatusServiceUnavailable)
+		return &connection{err: err}
+	}
+
+	return s.handleConnection(w, r, conn)
+}
+
+func (s *Server) addConnection(c *connection) {
+	s.connections.Store(c.id, c)
+}
+
+func (s *Server) getConnection(connID string) (*connection, bool) {
+	if cValue, ok := s.connections.Load(connID); ok {
+		// this cast is not necessary,
+		// we know that we always save a connection, but for good or worse let it be here.
+		if conn, ok := cValue.(*connection); ok {
+			return conn, ok
+		}
+	}
+
+	return nil, false
+}
+
+// wrapConnection wraps an underline connection to a *connection.
+// It does NOT starts its writer, reader and event mux, the caller is responsible for that.
+func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request, websocketConn UnderlineConnection) *connection {
+	// use the config's id generator (or the default) to create a websocket client/connection id
+	cid := s.config.IDGenerator(w, r)
+	// create the new connection
+	c := newConnection(r, s, websocketConn, cid)
+	// add the connection to the Server's list
+	s.addConnection(c)
+
+	// join to itself
+	s.Join(c.id, c.id)
+
+	return c
 }
 
 /* Notes:
@@ -291,85 +171,81 @@ func (s *server) HandleConnection(r *http.Request, websocketConn UnderlineConnec
 	 his/her websocket connections without even use the connection itself.
 
 	 Another question may be:
-	 Q: Why you use server as the main actioner for all of the connection actions?
-	 	  For example the server.Disconnect(connID) manages the connection internal fields, is this code-style correct?
-	 A: It's the correct code-style for these type of applications and libraries, server manages all, the connnection's functions
-	 should just do some internal checks (if needed) and push the action to its parent, which is the server, the server is able to
+	 Q: Why you use Server as the main actioner for all of the connection actions?
+	 	  For example the Server.Disconnect(connID) manages the connection internal fields, is this code-style correct?
+	 A: It's the correct code-style for these type of applications and libraries, Server manages all, the connnection's functions
+	 should just do some internal checks (if needed) and push the action to its parent, which is the Server, the Server is able to
 	 remove a connection, the rooms of its connected and all these things, so in order to not split the logic, we have the main logic
-	 here, in the server, and let the connection with some exported functions whose exists for the per-connection action user's code-style.
+	 here, in the Server, and let the connection with some exported functions whose exists for the per-connection action user's code-style.
 
 	 Ok my english are s** I can feel it, but these comments are mostly for me.
 */
 
-// OnConnection this is the main event you, as developer, will work with each of the websocket connections
-func OnConnection(cb ConnectionFunc) {
-	defaultServer.OnConnection(cb)
-}
+/*
+   connection actions, same as the connection's method,
+    but these methods accept the connection ID,
+    which is useful when the developer maps
+    this id with a database field (using config.IDGenerator).
+*/
 
-// OnConnection this is the main event you, as developer, will work with each of the websocket connections
-func (s *server) OnConnection(cb ConnectionFunc) {
+// OnConnection is the main event you, as developer, will work with each of the websocket connections.
+func (s *Server) OnConnection(cb ConnectionFunc) {
 	s.onConnectionListeners = append(s.onConnectionListeners, cb)
 }
 
-// IsConnected returns true if the connection with that ID is connected to the server
+// IsConnected returns true if the connection with that ID is connected to the Server
 // useful when you have defined a custom connection id generator (based on a database)
 // and you want to check if that connection is already connected (on multiple tabs)
-func IsConnected(connID string) bool {
-	return defaultServer.IsConnected(connID)
-}
-
-// IsConnected returns true if the connection with that ID is connected to the server
-// useful when you have defined a custom connection id generator (based on a database)
-// and you want to check if that connection is already connected (on multiple tabs)
-func (s *server) IsConnected(connID string) bool {
-	c := s.connections.get(connID)
-	return c != nil
+func (s *Server) IsConnected(connID string) bool {
+	_, found := s.getConnection(connID)
+	return found
 }
 
 // Join joins a websocket client to a room,
 // first parameter is the room name and the second the connection.ID()
 //
 // You can use connection.Join("room name") instead.
-func Join(roomName string, connID string) {
-	defaultServer.Join(roomName, connID)
-}
-
-// Join joins a websocket client to a room,
-// first parameter is the room name and the second the connection.ID()
-//
-// You can use connection.Join("room name") instead.
-func (s *server) Join(roomName string, connID string) {
+func (s *Server) Join(roomName string, connID string) {
 	s.mu.Lock()
 	s.join(roomName, connID)
 	s.mu.Unlock()
 }
 
 // join used internally, no locks used.
-func (s *server) join(roomName string, connID string) {
+func (s *Server) join(roomName string, connID string) {
 	if s.rooms[roomName] == nil {
 		s.rooms[roomName] = make([]string, 0)
 	}
 	s.rooms[roomName] = append(s.rooms[roomName], connID)
 }
 
-// LeaveAll kicks out a connection from ALL of its joined rooms
-func LeaveAll(connID string) {
-	defaultServer.LeaveAll(connID)
+// IsJoined reports if a specific room has a specific connection into its values.
+// First parameter is the room name, second is the connection's id.
+//
+// It returns true when the "connID" is joined to the "roomName".
+func (s *Server) IsJoined(roomName string, connID string) bool {
+	s.mu.RLock()
+	room := s.rooms[roomName]
+	s.mu.RUnlock()
+
+	if room == nil {
+		return false
+	}
+
+	for _, connid := range room {
+		if connID == connid {
+			return true
+		}
+	}
+
+	return false
 }
 
 // LeaveAll kicks out a connection from ALL of its joined rooms
-func (s *server) LeaveAll(connID string) {
+func (s *Server) LeaveAll(connID string) {
 	s.mu.Lock()
-	for name, connectionIDs := range s.rooms {
-		for i := range connectionIDs {
-			if connectionIDs[i] == connID {
-				// fire the on room leave connection's listeners
-				s.connections.get(connID).fireOnLeave(name)
-				// the connection is inside this room, lets remove it
-				s.rooms[name][i] = s.rooms[name][len(s.rooms[name])-1]
-				s.rooms[name] = s.rooms[name][:len(s.rooms[name])-1]
-			}
-		}
+	for name := range s.rooms {
+		s.leave(name, connID)
 	}
 	s.mu.Unlock()
 }
@@ -379,16 +255,7 @@ func (s *server) LeaveAll(connID string) {
 //
 // You can use connection.Leave("room name") instead.
 // Returns true if the connection has actually left from the particular room.
-func Leave(roomName string, connID string) {
-	defaultServer.Leave(roomName, connID)
-}
-
-// Leave leaves a websocket client from a room,
-// first parameter is the room name and the second the connection.ID()
-//
-// You can use connection.Leave("room name") instead.
-// Returns true if the connection has actually left from the particular room.
-func (s *server) Leave(roomName string, connID string) bool {
+func (s *Server) Leave(roomName string, connID string) bool {
 	s.mu.Lock()
 	left := s.leave(roomName, connID)
 	s.mu.Unlock()
@@ -396,14 +263,13 @@ func (s *server) Leave(roomName string, connID string) bool {
 }
 
 // leave used internally, no locks used.
-func (s *server) leave(roomName string, connID string) (left bool) {
+func (s *Server) leave(roomName string, connID string) (left bool) {
 	///THINK: we could add locks to its room but we still use the lock for the whole rooms or we can just do what we do with connections
 	// I will think about it on the next revision, so far we use the locks only for rooms so we are ok...
 	if s.rooms[roomName] != nil {
 		for i := range s.rooms[roomName] {
 			if s.rooms[roomName][i] == connID {
-				s.rooms[roomName][i] = s.rooms[roomName][len(s.rooms[roomName])-1]
-				s.rooms[roomName] = s.rooms[roomName][:len(s.rooms[roomName])-1]
+				s.rooms[roomName] = append(s.rooms[roomName][:i], s.rooms[roomName][i+1:]...)
 				left = true
 				break
 			}
@@ -414,30 +280,76 @@ func (s *server) leave(roomName string, connID string) (left bool) {
 	}
 
 	if left {
-		// fire the on room leave connection's listeners
-		s.connections.get(connID).fireOnLeave(roomName)
+		// fire the on room leave connection's listeners,
+		// the existence check is not necessary here.
+		if c, ok := s.getConnection(connID); ok {
+			c.fireOnLeave(roomName)
+		}
 	}
 	return
 }
 
-// GetConnectionsByRoom returns a list of Connection
-// which are joined to this room.
-func GetConnectionsByRoom(roomName string) []Connection {
-	return defaultServer.GetConnectionsByRoom(roomName)
+// GetTotalConnections returns the number of total connections
+func (s *Server) GetTotalConnections() (n int) {
+	s.connections.Range(func(k, v interface{}) bool {
+		n++
+		return true
+	})
+
+	return n
+}
+
+// GetConnections returns all connections
+func (s *Server) GetConnections() []Connection {
+	// first call of Range to get the total length, we don't want to use append or manually grow the list here for many reasons.
+	length := s.GetTotalConnections()
+	conns := make([]Connection, length, length)
+	i := 0
+	// second call of Range.
+	s.connections.Range(func(k, v interface{}) bool {
+		conn, ok := v.(*connection)
+		if !ok {
+			// if for some reason (should never happen), the value is not stored as *connection
+			// then stop the iteration and don't continue insertion of the result connections
+			// in order to avoid any issues while end-dev will try to iterate a nil entry.
+			return false
+		}
+		conns[i] = conn
+		i++
+		return true
+	})
+
+	return conns
+}
+
+// GetConnection returns single connection
+func (s *Server) GetConnection(connID string) Connection {
+	conn, ok := s.getConnection(connID)
+	if !ok {
+		return nil
+	}
+
+	return conn
 }
 
 // GetConnectionsByRoom returns a list of Connection
 // which are joined to this room.
-func (s *server) GetConnectionsByRoom(roomName string) []Connection {
-	s.mu.Lock()
+func (s *Server) GetConnectionsByRoom(roomName string) []Connection {
 	var conns []Connection
+	s.mu.RLock()
 	if connIDs, found := s.rooms[roomName]; found {
 		for _, connID := range connIDs {
-			conns = append(conns, s.connections.get(connID))
+			// existence check is not necessary here.
+			if cValue, ok := s.connections.Load(connID); ok {
+				if conn, ok := cValue.(*connection); ok {
+					conns = append(conns, conn)
+				}
+			}
 		}
-
 	}
-	s.mu.Unlock()
+
+	s.mu.RUnlock()
+
 	return conns
 }
 
@@ -450,35 +362,53 @@ func (s *server) GetConnectionsByRoom(roomName string) []Connection {
 //
 // You SHOULD use connection.EmitMessage/Emit/To().Emit/EmitMessage instead.
 // let's keep it unexported for the best.
-func (s *server) emitMessage(from, to string, data []byte) {
-	if to != All && to != NotMe && s.rooms[to] != nil {
-		// it suppose to send the message to a specific room/or a user inside its own room
-		for _, connectionIDInsideRoom := range s.rooms[to] {
-			if c := s.connections.get(connectionIDInsideRoom); c != nil {
-				c.writeDefault(data) //send the message to the client(s)
-			} else {
-				// the connection is not connected but it's inside the room, we remove it on disconnect but for ANY CASE:
-				cid := connectionIDInsideRoom
-				if c != nil {
-					cid = c.id
+func (s *Server) emitMessage(from, to string, data []byte) {
+	if to != All && to != Broadcast {
+		s.mu.RLock()
+		room := s.rooms[to]
+		s.mu.RUnlock()
+		if room != nil {
+			// it suppose to send the message to a specific room/or a user inside its own room
+			for _, connectionIDInsideRoom := range room {
+				if c, ok := s.getConnection(connectionIDInsideRoom); ok {
+					c.writeDefault(data) //send the message to the client(s)
+				} else {
+					// the connection is not connected but it's inside the room, we remove it on disconnect but for ANY CASE:
+					cid := connectionIDInsideRoom
+					if c != nil {
+						cid = c.id
+					}
+					s.Leave(cid, to)
 				}
-				s.Leave(cid, to)
 			}
 		}
 	} else {
-		// it suppose to send the message to all opened connections or to all except the sender
-		for _, cKV := range s.connections {
-			connID := cKV.key
+		// it suppose to send the message to all opened connections or to all except the sender.
+		s.connections.Range(func(k, v interface{}) bool {
+			connID, ok := k.(string)
+			if !ok {
+				// should never happen.
+				return true
+			}
+
 			if to != All && to != connID { // if it's not suppose to send to all connections (including itself)
-				if to == NotMe && from == connID { // if broadcast to other connections except this
-					continue //here we do the opossite of previous block,
-					// just skip this connection when it's suppose to send the message to all connections except the sender
+				if to == Broadcast && from == connID { // if broadcast to other connections except this
+					// here we do the opossite of previous block,
+					// just skip this connection when it's suppose to send the message to all connections except the sender.
+					return true
 				}
 
 			}
-			// send to the client(s) when the top validators passed
-			cKV.value.writeDefault(data)
-		}
+
+			// not necessary cast.
+			conn, ok := v.(*connection)
+			if ok {
+				// send to the client(s) when the top validators passed
+				conn.writeDefault(data)
+			}
+
+			return ok
+		})
 	}
 }
 
@@ -490,34 +420,20 @@ func (s *server) emitMessage(from, to string, data []byte) {
 // 4. close the underline connection and return its error, if any.
 //
 // You can use the connection.Disconnect() instead.
-func Disconnect(connID string) error {
-	return defaultServer.Disconnect(connID)
-}
-
-// Disconnect force-disconnects a websocket connection based on its connection.ID()
-// What it does?
-// 1. remove the connection from the list
-// 2. leave from all joined rooms
-// 3. fire the disconnect callbacks, if any
-// 4. close the underline connection and return its error, if any.
-//
-// You can use the connection.Disconnect() instead.
-func (s *server) Disconnect(connID string) (err error) {
-	// leave from all joined rooms before actually remove the connection from the list
-	// note: you cannot use that to send data if the client is actually closed.
+func (s *Server) Disconnect(connID string) (err error) {
+	// leave from all joined rooms before remove the actual connection from the list.
+	// note: we cannot use that to send data if the client is actually closed.
 	s.LeaveAll(connID)
 
-	// remove the connection from the list
-	if c, ok := s.connections.remove(connID); ok {
-		if !c.disconnected {
-			c.disconnected = true
-			// stop the ping timer
-			c.pinger.Stop()
-			// fire the disconnect callbacks, if any
-			c.fireDisconnect()
-			// close the underline connection and return its error, if any.
-			err = c.underline.Close()
-		}
+	// remove the connection from the list.
+	if conn, ok := s.getConnection(connID); ok {
+		conn.disconnected = true
+		// fire the disconnect callbacks, if any.
+		conn.fireDisconnect()
+		// close the underline connection and return its error, if any.
+		err = conn.underline.Close()
+
+		s.connections.Delete(connID)
 	}
 
 	return

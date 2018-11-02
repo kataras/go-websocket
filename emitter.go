@@ -1,18 +1,10 @@
 package websocket
 
-// -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
-// --------------------------------Emitter implementation-------------------------------
-// -------------------------------------------------------------------------------------
-// -------------------------------------------------------------------------------------
-
 const (
-	// All is the string which the Emitter use to send a message to all
+	// All is the string which the Emitter use to send a message to all.
 	All = ""
-	// NotMe is the string which the Emitter use to send a message to all except this connection
-	NotMe = ";gowebsocket;to;all;except;me;"
-	// Broadcast is the string which the Emitter use to send a message to all except this connection, same as 'NotMe'
-	Broadcast = NotMe
+	// Broadcast is the string which the Emitter use to send a message to all except this connection.
+	Broadcast = ";to;all;except;me;"
 )
 
 type (
@@ -42,10 +34,10 @@ func (e *emitter) EmitMessage(nativeMessage []byte) error {
 }
 
 func (e *emitter) Emit(event string, data interface{}) error {
-	message, err := websocketMessageSerialize(event, data)
+	message, err := e.conn.server.messageSerializer.serialize(event, data)
 	if err != nil {
 		return err
 	}
-	e.EmitMessage([]byte(message))
+	e.EmitMessage(message)
 	return nil
 }

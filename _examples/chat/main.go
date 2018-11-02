@@ -21,20 +21,33 @@ func main() {
 	staticHandler := http.FileServer(http.Dir("static"))
 	http.Handle("/static/", http.StripPrefix("/static/", staticHandler))
 
-	// or this ( import "github.com/kataras/go-fs"): it's the same thing
-	// http.Handle("/static/", fs.DirHandler("./static", "/static/"))
-
 	// Start Websocket example code
 
 	// init our websocket
 	ws := websocket.New(websocket.Config{}) // with the default configuration
-	// the path which the websocket client should listen/registered to ->
-	http.Handle("/my_endpoint", ws.Handler()) // See ./templates/client.html line: 21
+	// the path which the websocket client should listen/registered to,
+	// see ./templates/client.html line: 21
+	// http.HandleFunc("/my_endpoint", ws.Handler)
+	// ws.OnConnection(handleWebsocketConnection) // register the connection handler, which will fire on each new connected websocket client.
+	// OR if you don't want to use the `OnConnection`
+	// and you want to handle the Upgradation from simple http to websocket protocol do that:
+	http.HandleFunc("/my_endpoint", func(w http.ResponseWriter, r *http.Request) {
+		c := ws.Upgrade(w, r)
+		if err := c.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("websocket error: %v\n", err), http.StatusServiceUnavailable)
+		}
+
+		// handle the connection.
+		handleWebsocketConnection(c)
+
+		// start the ping and the messages reader, this is blocking the http handler from exiting too.
+		c.Wait()
+	})
 
 	// serve our client-side source code go-websocket. See ./templates/client.html line: 19
-	http.Handle(websocket.ClientSourcePath, websocket.ClientSourceHandler) // if you run more than one websocket servers, you don't have to call it more than once.
-
-	ws.OnConnection(handleWebsocketConnection) // register the connection handler, which will fire on each new connected websocket client.
+	http.HandleFunc("/go-websocket.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(ws.ClientSource)
+	})
 
 	// End Websocket example code
 
@@ -54,7 +67,7 @@ func main() {
 		}
 	}))
 
-	println("Server is up & running, open two browser tabs/or/and windows and navigate to " + host)
+	println("Server is up & running, open two browser tabs/or/and windows and navigate to http://" + host)
 	http.ListenAndServe(host, nil)
 }
 

@@ -1,27 +1,8 @@
-package websocket
-
-import (
-	"net/http"
-)
-
-// ClientHandler is the handler which serves the javascript client-side.
-// It can be used as an alternative of a custom http route to register the client-side javascript code,
-// Use the Server's `ClientSource` field instead to serve the custom code if you changed the default prefix for custom websocket events.
-func ClientHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/javascript")
-	_, err := w.Write(ClientSource)
-	if err != nil {
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-}
-
-// ClientSource the client-side javascript raw source code.
-var ClientSource = []byte(`var websocketStringMessageType = 0;
-var websocketIntMessageType = 1; 
+var websocketStringMessageType = 0;
+var websocketIntMessageType = 1;
 var websocketBoolMessageType = 2;
 var websocketJSONMessageType = 4;
-var websocketMessagePrefix = "` + DefaultEvtMessageKey + `";
+var websocketMessagePrefix = "go-websocket-message:";
 var websocketMessageSeparator = ";";
 var websocketMessagePrefixLen = websocketMessagePrefix.length;
 var websocketMessageSeparatorLen = websocketMessageSeparator.length;
@@ -29,7 +10,6 @@ var websocketMessagePrefixAndSepIdx = websocketMessagePrefixLen + websocketMessa
 var websocketMessagePrefixIdx = websocketMessagePrefixLen - 1;
 var websocketMessageSeparatorIdx = websocketMessageSeparatorLen - 1;
 var Ws = (function () {
-    //
     function Ws(endpoint, protocols) {
         var _this = this;
         // events listeners
@@ -226,4 +206,3 @@ var Ws = (function () {
     };
     return Ws;
 }());
-`)
