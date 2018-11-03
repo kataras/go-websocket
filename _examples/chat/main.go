@@ -35,6 +35,7 @@ func main() {
 		c := ws.Upgrade(w, r)
 		if err := c.Err(); err != nil {
 			http.Error(w, fmt.Sprintf("websocket error: %v\n", err), http.StatusServiceUnavailable)
+			return
 		}
 
 		// handle the connection.
